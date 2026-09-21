@@ -1,6 +1,8 @@
 #include "SocialProfileStore.h"
 
 #include "DatabaseEnv.h"
+#include "Field.h"
+#include "QueryResult.h"
 
 #include <string>
 
