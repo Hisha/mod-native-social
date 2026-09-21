@@ -18,8 +18,28 @@ bool SocialProfileStore::LoadAll()
 {
     Clear();
 
-    // A missing table surfaces as a failed query (nullptr), which we report
-    // back to the caller so the operator is told to apply the auth SQL.
+    // Verify the table exists and is readable by using COUNT(*) which always
+    // returns a row (even when table is empty), distinguishing a missing table
+    // from a successfully queried empty table.
+    QueryResult schemaCheck = LoginDatabase.Query(
+        "SELECT COUNT(*) FROM native_social_account");
+    if (!schemaCheck)
+    {
+        // Table does not exist or is not readable
+        return false;
+    }
+
+    // Get the count from the result
+    Field const* countRow = schemaCheck->Fetch();
+    std::uint64_t count = countRow[0].Get<std::uint64_t>();
+    
+    // If count is zero, the table is verified readable and we can return success
+    // immediately with zero loaded profiles
+    if (count == 0)
+    {
+        return true;
+    }
+
     QueryResult result = LoginDatabase.Query(
         "SELECT account_id, display_name, appear_offline "
         "FROM native_social_account");
