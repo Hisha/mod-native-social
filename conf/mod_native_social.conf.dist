@@ -1,0 +1,19 @@
+#
+# Native Social -- account-level presence foundation
+# Requires mod-content-manager; the client patch ships as a Content Manager
+# package built from this module's content/ directory.
+#
+
+# Enable the Native Social module. When disabled, no profile, presence or
+# command feature is active and pending presence data is dropped.
+#    Default: 1 (enabled)
+NativeSocial.Enable = 1
+
+# Minimum length (in display characters) of a Native Social display name.
+#    Default: 3
+NativeSocial.DisplayNameMinLength = 3
+
+# Maximum length (in display characters) of a Native Social display name.
+# Names longer than 48 characters are refused regardless of this setting.
+#    Default: 24
+NativeSocial.DisplayNameMaxLength = 24
