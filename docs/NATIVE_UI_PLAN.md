@@ -12,8 +12,9 @@ the Social button / `ToggleFriendsFrame()` is **`FriendsFrame`**, living in
 `Interface/FrameXML/FriendsFrame.xml` and `FriendsFrame.lua`. Both files were
 extracted from a European 3.3.5a client:
 
-- Source MPQ: `Data/enUS/patch-enUS-2.MPQ` (files also present in
-  `patch-enUS.MPQ`).
+- Source MPQ: `Data/enUS/patch-enUS-3.MPQ` (contains the runtime-effective resources).
+- Reference files: `patch-enUS-2.MPQ` also contains these files, but `patch-enUS-3.MPQ`
+  is the authoritative source for 3.3.5a.
 - Extracted copies (reference only): `FriendsFrame.xml` (~4448 lines),
   `FriendsFrame.lua` (~1517 lines).
 
@@ -72,12 +73,15 @@ files), with the built patch archiving over the base MPQ files.
 3. **Strings**: avoid shadowing `GlobalStrings.lua` (full-copy risk); use
    inline localized literals or a small module-owned string table committed
    in the patch.
-4. **Protocol**: the native client talks to the worldserver without addons.
-   Standard options to evaluate in Phase 2: a module-owned chat-message
-   namespace (client → server via existing chat commands, server → client via
-   SMSG channels or message chat), or a dedicated world opcode pair. The
-   server surface already exposed by this module
-   (`SocialService`) is designed so the protocol layer can call it directly.
+4. **Protocol**: the native client talks to the worldserver using the existing
+    3.3.5a addon-message transport (CHAT_MSG_ADDON with LANG_ADDON). The NSOC
+    protocol (see `docs/NSOC_PROTOCOL.md`) defines the wire format for bidirectional
+    communication. The server surface already exposed by this module
+    (`SocialService`) is designed so the protocol layer can call it directly.
+    
+    The Phase 2 client will send NSOC requests via `SendAddonMessage()` and receive
+    responses through the CHAT_MSG_ADDON event. The first operation is LIST,
+    which returns the Native Social player/presence list for the Players tab.
 
 Nothing in `content/` currently modifies `FriendsFrame`. Phase 1 deliberately
 ships no client package (no fake content): the real package — produced from

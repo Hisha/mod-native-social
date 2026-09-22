@@ -1,4 +1,5 @@
 #include "SocialService.h"
+#include "NsocHandler.h"
 
 #include "Chat.h"
 #include "CommandScript.h"
@@ -115,10 +116,29 @@ class NativeSocialPlayerScript final : public PlayerScript
 {
 public:
     NativeSocialPlayerScript() : PlayerScript("NativeSocialPlayerScript",
-        { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT }) { }
+        { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE }) { }
 
     void OnPlayerLogin(Player* player) override { GetService()->HandlePlayerLogin(player); }
     void OnPlayerLogout(Player* player) override { GetService()->HandlePlayerLogout(player); }
+
+    void OnPlayerBeforeSendChatMessage(Player* player, uint32_t& type, uint32_t& lang, std::string& message) override
+    {
+        // Only intercept LANG_ADDON whisper traffic; leave all other chat alone.
+        if (lang != LANG_ADDON)
+            return;
+
+        if (type != CHAT_MSG_WHISPER)
+            return;
+
+        WorldSession* session = player->GetSession();
+        if (!session)
+            return;
+
+        // NSOC uses whisper addon messages as its private transport. Consume
+        // requests here so they never reach normal chat delivery.
+        if (nativesocial::NsocHandler::HandleRequest(session, message))
+            message.clear();
+    }
 };
 
 class NativeSocialCommandScript final : public CommandScript

@@ -31,7 +31,7 @@ bool SocialProfileStore::LoadAll()
 
     // Get the count from the result
     Field const* countRow = schemaCheck->Fetch();
-    std::uint64_t count = countRow[0].Get<std::uint64_t>();
+    std::uint32_t count = countRow[0].Get<std::uint32_t>();
     
     // If count is zero, the table is verified readable and we can return success
     // immediately with zero loaded profiles

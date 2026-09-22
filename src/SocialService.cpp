@@ -248,6 +248,7 @@ std::string SocialService::Diagnostics() const
         + std::to_string(SocialPresence::Instance().OnlineAccountCount()) + " online\n";
     text += "  Display name bounds: " + std::to_string(_displayNameMinLength) + ".."
         + std::to_string(_displayNameMaxLength) + "\n";
+    text += "  NSOC protocol: v1 available\n";
     return text;
 }
 

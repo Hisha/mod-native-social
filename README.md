@@ -68,6 +68,7 @@ phases.
 - The native client "Players" social tab (design + 3.3.5a client
   investigation: `docs/NATIVE_UI_PLAN.md`).
 - Multi-realm shared-auth optimizations (see "Limitations").
+- NSOC protocol extensions (PRESENCE, SEND, FAVORITE, BLOCK operations).
 
 ## Architecture
 
