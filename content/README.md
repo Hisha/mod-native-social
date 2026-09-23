@@ -1,21 +1,22 @@
-# Native Social content package — design (no artifact shipped yet)
+# Native Social content package — Checkpoint 1B (real, byte-exact, transport-only)
 
-This directory is the future home of the mod-native-social client-patch
-package consumed by **mod-content-manager** (which auto-discovers every
-`*.epf` under `<ContentManager.ModuleDirectory>/<module>/content/`, default
-module directory `./modules`).
+This directory is the home of the mod-native-social client-patch package
+consumed by **mod-content-manager** (which auto-discovers every `*.epf` under
+`<ContentManager.ModuleDirectory>/<module>/content/`, default module directory
+`./modules`).
 
-**Phase 1 intentionally ships no `*.epf`.** There is no real client UI yet,
-so we do not produce a fake package merely to exercise the Content Manager
-pipeline. The intended progression:
+**Checkpoint 1B ships a real `*.epf`** (`mod-native-social.epf`, schema 1, raw
+files), byte-exact against `content/sources/`. It shadows the stock 3.3.5a
+`FriendsFrame.lua`/`FriendsFrame.xml` and adds `NativeSocial.lua` (the NSOC
+`LIST` transport the players tab talks over). It is deliberately **no fake
+package**: every byte came from the real Phase 2A front-end work. The intended
+progression:
 
-- **Phase 1** (now): account/profile/presence backend plus temporary
+- **Checkpoint 1A** (Phase 1): account/profile/presence backend plus temporary
   `.social` developer commands. No client content, nothing required.
-- **Phase 2+**: the actual Native Social client functionality (a "Players"
-  social-network tab in the 3.3.5a `FriendsFrame`), shipped as a real package
-  from this directory, and *declared mandatory* by the server so the module
-  hard-fails if it is missing. See `docs/NATIVE_UI_PLAN.md` at the repository
-  root for the client investigation and packaging approach.
+- **Checkpoint 1B** (now): the first real native client transport package
+  (below) — a "Players" tab in the 3.3.5a `FriendsFrame`, shipped byte-exact.
+- **Phase 2+**: the vendor-backed activation seam consumed by this package.
 
 ## Package identity (when content ships)
 

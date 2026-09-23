@@ -1,9 +1,11 @@
 # Native UI plan: the 3.3.5a social window
 
-Status: investigation complete (this file), implementation deferred to a
-later Native Social phase. This module ships the patch through
-mod-content-manager; the package content is designed to live in `content/`
-(no `*.epf` is shipped in Phase 1, see `content/README.md`).
+Status: investigation complete (this file); the **real transport package now
+ships** byte-exact at `content/mod-native-social.epf` (Checkpoint 1B), built
+from `content/sources/`. The package is deliberately **transport-only**: it
+declares **no vendor capability**, so the Content Manager seam that activates
+server-declared content stays empty. That seam and the gap it records are
+documented in `content/README.md`.
 
 ## Investigation summary
 
@@ -83,7 +85,8 @@ files), with the built patch archiving over the base MPQ files.
     responses through the CHAT_MSG_ADDON event. The first operation is LIST,
     which returns the Native Social player/presence list for the Players tab.
 
-Nothing in `content/` currently modifies `FriendsFrame`. Phase 1 deliberately
-ships no client package (no fake content): the real package — produced from
-the `content/` design and declared mandatory by the server — ships together
-with the first real client functionality in Phase 2.
+Phase 1 shipped no client content by design (no fake package). Checkpoint 1B
+now ships the real package (`content/mod-native-social.epf`, byte-exact against
+`content/sources/`): a second "Players" tab in the 3.3.5a `FriendsFrame` plus
+the `NativeSocial.lua` NSOC `LIST` transport the tab talks over. See
+`content/README.md` for the package identity and realm activation procedure.

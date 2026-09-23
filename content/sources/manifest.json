@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "package": "mod-native-social",
+  "name": "Native Social",
+  "version": "1.0.0",
+  "description": "Phase 2A Checkpoint 1B: NSOC client transport. Adds a \"Players\" tab to the native FriendsFrame plus the NativeSocial.lua addon-message transport listing online players. Server: mod-native-social.",
+  "content": [
+    {
+      "type": "file",
+      "source": "assets/Interface/FrameXML/FriendsFrame.lua",
+      "target": "Interface/FrameXML/FriendsFrame.lua"
+    },
+    {
+      "type": "file",
+      "source": "assets/Interface/FrameXML/FriendsFrame.xml",
+      "target": "Interface/FrameXML/FriendsFrame.xml"
+    },
+    {
+      "type": "file",
+      "source": "assets/Interface/FrameXML/NativeSocial.lua",
+      "target": "Interface/FrameXML/NativeSocial.lua"
+    }
+  ]
+}
