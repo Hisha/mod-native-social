@@ -2,8 +2,8 @@
   "schema": 1,
   "package": "mod-native-social",
   "name": "Native Social",
-  "version": "1.0.1",
-  "description": "Phase 2A Checkpoint 1B: NSOC client transport. Adds a \"Players\" tab to the native FriendsFrame plus the NativeSocial.lua addon-message transport listing online players. v1.0.1 fixes the startup \"interface files are corrupt\" client failure: adds the missing FriendsFrameTab6 button and completes the players-panel scroll frame / button template. Server: mod-native-social.",
+  "version": "1.0.2",
+  "description": "TEMPORARY DIAGNOSTIC CONTROL BUILD: pristine FrameXML override control test. 1.0.2 contains ONLY byte-for-byte pristine copies of Interface/FrameXML/FriendsFrame.lua and FriendsFrame.xml extracted directly from the pristine WoW 3.3.5a (build 12340) Data/enUS/patch-enUS-3.MPQ. No NativeSocial.lua, no FriendsFrameTab6, no NSOC code, no Players UI, no Lua or XML modification. Purpose: determine whether Content Manager delivery of pristine stock FrameXML files triggers the 'Your game interface files are corrupt' startup error (CASE A) or boots successfully (CASE B).",
   "content": [
     {
       "type": "file",
@@ -14,11 +14,6 @@
       "type": "file",
       "source": "assets/Interface/FrameXML/FriendsFrame.xml",
       "target": "Interface/FrameXML/FriendsFrame.xml"
-    },
-    {
-      "type": "file",
-      "source": "assets/Interface/FrameXML/NativeSocial.lua",
-      "target": "Interface/FrameXML/NativeSocial.lua"
     }
   ]
 }
