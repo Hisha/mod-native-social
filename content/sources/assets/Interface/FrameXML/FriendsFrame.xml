@@ -4833,13 +4833,85 @@
 					<OnLeave function="GameTooltip_Hide"/>
 				</Scripts>
 			</Button>
-			<Frame name="NativeSocialPlayersPanel" hidden="true" setAllPoints="true">
+			<Button name="FriendsFrameTab6" inherits="FriendsFrameTabTemplate" id="6" text="Players">
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="FriendsFrameTab5" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="-15" y="0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad function="FriendsFrame_Update"/>
+					<OnEvent function="FriendsFrame_Update"/>
+					<OnEnter>
+						GameTooltip_AddNewbieTip(self, "Players", 1.0, 1.0, 1.0, "Players advertising their presence via Native Social.", 1);
+					</OnEnter>
+					<OnLeave function="GameTooltip_Hide"/>
+				</Scripts>
+			</Button>
+			<Button name="NativeSocialPlayersButtonTemplate" virtual="true">
+				<Size>
+					<AbsDimension x="298" y="18"/>
+				</Size>
 				<Layers>
 					<Layer level="ARTWORK">
-						<FontString name="$parentStatus" inherits="GameFontNormal" justifyH="CENTER" setAllPoints="true">
+						<FontString name="$parentName" inherits="GameFontNormal" justifyH="LEFT">
+							<Anchors>
+								<Anchor point="LEFT">
+									<Offset>
+										<AbsDimension x="10" y="0"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
 						</FontString>
 					</Layer>
 				</Layers>
+			</Button>
+			<Frame name="NativeSocialPlayersPanel" hidden="true" setAllPoints="true">
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentStatus" inherits="GameFontNormal" justifyH="CENTER">
+							<Anchors>
+								<Anchor point="TOP">
+									<Offset>
+										<AbsDimension x="0" y="-70"/>
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<Frames>
+					<ScrollFrame name="NativeSocialPlayersScrollFrame" inherits="DynamicScrollFrameTemplate">
+						<Size>
+							<AbsDimension x="300" y="340"/>
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="20" y="-110"/>
+								</Offset>
+							</Anchor>
+						</Anchors>
+						<Frames>
+							<Slider name="$parentScrollBar" inherits="UIPanelScrollBarTemplate">
+								<Anchors>
+									<Anchor point="TOPRIGHT">
+										<Offset>
+											<AbsDimension x="-20" y="-16"/>
+										</Offset>
+									</Anchor>
+									<Anchor point="BOTTOMRIGHT">
+										<Offset>
+											<AbsDimension x="-20" y="16"/>
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Slider>
+						</Frames>
+					</ScrollFrame>
+				</Frames>
 			</Frame>
 			<Frame name="FriendsTooltip" frameStrata="TOOLTIP" hidden="true" clampedToScreen="true">
 				<Size>
