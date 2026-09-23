@@ -73,7 +73,7 @@ WHOFRAME_DROPDOWN_LIST = {
 	{name = RACE, sortType = "race"}
 };
 
-FRIENDSFRAME_SUBFRAMES = { "FriendsListFrame", "IgnoreListFrame", "PendingListFrame", "WhoFrame", "GuildFrame", "ChannelFrame", "RaidFrame" };
+FRIENDSFRAME_SUBFRAMES = { "FriendsListFrame", "IgnoreListFrame", "PendingListFrame", "WhoFrame", "GuildFrame", "ChannelFrame", "RaidFrame", "NativeSocialPlayersPanel" };
 function FriendsFrame_ShowSubFrame(frameName)
 	for index, value in pairs(FRIENDSFRAME_SUBFRAMES) do
 		if ( value == frameName ) then
@@ -191,7 +191,7 @@ function FriendsFrameBNOfflineDropDown_Initialize()
 end
 
 function FriendsFrame_OnLoad(self)
-	PanelTemplates_SetNumTabs(self, 5);
+	PanelTemplates_SetNumTabs(self, 6);
 	self.selectedTab = 1;
 	PanelTemplates_UpdateTabs(self);
 	self:RegisterEvent("FRIENDLIST_SHOW");
@@ -326,6 +326,14 @@ function FriendsFrame_Update()
 			FriendsFrameBottomRight:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-General-BottomRight");
 			FriendsFrameTitleText:SetText(RAID);
 			FriendsFrame_ShowSubFrame("RaidFrame");
+		elseif ( FriendsFrame.selectedTab == 6 ) then
+			FriendsFrameTopLeft:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-General-TopLeft");
+			FriendsFrameTopRight:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-General-TopRight");
+			FriendsFrameBottomLeft:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-General-BottomLeft");
+			FriendsFrameBottomRight:SetTexture("Interface\\PaperDollInfoFrame\\UI-Character-General-BottomRight");
+			FriendsFrameTitleText:SetText("Native Social");
+			FriendsFrame_ShowSubFrame("NativeSocialPlayersPanel");
+			NativeSocialPlayers_Refresh();
 		end
 	end
 end

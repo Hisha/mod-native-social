@@ -2,8 +2,8 @@
   "schema": 1,
   "package": "mod-native-social",
   "name": "Native Social",
-  "version": "1.0.2",
-  "description": "TEMPORARY DIAGNOSTIC CONTROL BUILD: pristine FrameXML override control test. 1.0.2 contains ONLY byte-for-byte pristine copies of Interface/FrameXML/FriendsFrame.lua and FriendsFrame.xml extracted directly from the pristine WoW 3.3.5a (build 12340) Data/enUS/patch-enUS-3.MPQ. No NativeSocial.lua, no FriendsFrameTab6, no NSOC code, no Players UI, no Lua or XML modification. Purpose: determine whether Content Manager delivery of pristine stock FrameXML files triggers the 'Your game interface files are corrupt' startup error (CASE A) or boots successfully (CASE B).",
+  "version": "1.0.3",
+  "description": "Phase 2A diagnostic: FriendsFrame.lua-only bisect. 1.0.3 starts from the proven-good 1.0.2 control and modifies ONLY Interface/FrameXML/FriendsFrame.lua with the corrected 1.0.1 Players-tab integration points applied cleanly to the pristine patch-enUS-3 MPQ baseline. FriendsFrame.xml remains byte-for-byte pristine. No NativeSocial.lua, no XML changes, no NSOC transport, no functional Players tab (intentional). Question: does WoW boot with the FriendsFrame.lua modifications?",
   "content": [
     {
       "type": "file",
