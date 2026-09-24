@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace nativesocial
 {
@@ -26,8 +27,15 @@ public:
 
     std::size_t LoadedCount() const { return _profiles.size(); }
 
+    // Snapshots all profile rows (used to compile the player directory).
+    std::vector<SocialProfile> AllProfiles() const;
+
     bool FindAccount(std::uint32_t accountId, SocialProfile& out) const;
     bool FindByNameKey(std::string const& nameKey, SocialProfile& out) const;
+
+    // Authoritative local + auth-database uniqueness preflight. The unique
+    // database key still resolves races at write time.
+    NameResult CheckDisplayNameAvailable(std::uint32_t accountId, std::string const& displayName) const;
 
     // Persists an already-validated display name for the account. On success
     // the local state reflects the change.

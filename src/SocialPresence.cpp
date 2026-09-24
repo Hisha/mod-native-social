@@ -8,6 +8,7 @@
 #include "Playerbots.h"
 #endif
 
+#include <unordered_set>
 #include <vector>
 
 namespace nativesocial
@@ -23,6 +24,7 @@ void SocialPresence::Clear()
     _pending.clear();
     _confirmed.clear();
     _sessionsPerAccount.clear();
+    _botAccounts.clear();
 }
 
 void SocialPresence::OnLogin(Player* player)
@@ -55,14 +57,30 @@ void SocialPresence::OnLogout(Player* player)
 void SocialPresence::Flush()
 {
     // Purge confirmed sessions that no longer hold a live, human session
-    // (abrupt disconnects can skip the logout hook).
+    // (abrupt disconnects can skip the logout hook). Sessions that are still
+    // present but no longer classify as human are remembered as bot accounts
+    // so the directory never offers them.
     for (auto it = _confirmed.begin(); it != _confirmed.end();)
     {
         Player* player = ObjectAccessor::FindPlayer(it->first);
-        if (!player || !player->GetSession() || !IsHumanSession(player) ||
+        if (!player || !player->GetSession() ||
             player->GetSession()->GetAccountId() != it->second)
         {
             auto const sessions = _sessionsPerAccount.find(it->second);
+            if (sessions != _sessionsPerAccount.end())
+            {
+                if (sessions->second > 1)
+                    --sessions->second;
+                else
+                    _sessionsPerAccount.erase(sessions);
+            }
+            it = _confirmed.erase(it);
+        }
+        else if (!IsHumanSession(player))
+        {
+            std::uint32_t const account = it->second;
+            _botAccounts.insert(account);
+            auto const sessions = _sessionsPerAccount.find(account);
             if (sessions != _sessionsPerAccount.end())
             {
                 if (sessions->second > 1)
@@ -102,6 +120,7 @@ void SocialPresence::Flush()
         }
         if (!IsHumanSession(player))
         {
+            _botAccounts.insert(account);
             _pending.erase(it);
             continue;
         }
@@ -116,6 +135,32 @@ bool SocialPresence::IsOnline(std::uint32_t accountId) const
 {
     auto const it = _sessionsPerAccount.find(accountId);
     return it != _sessionsPerAccount.end() && it->second > 0;
+}
+
+bool SocialPresence::IsKnownBotAccount(std::uint32_t accountId) const
+{
+    return _botAccounts.count(accountId) != 0;
+}
+
+std::unordered_set<std::uint32_t> const& SocialPresence::BotAccounts() const
+{
+    return _botAccounts;
+}
+
+Player* SocialPresence::ActiveCharacterForAccount(std::uint32_t accountId) const
+{
+    Player* best = nullptr;
+    for (auto const& entry : _confirmed)
+    {
+        if (entry.second != accountId)
+            continue;
+        Player* player = ObjectAccessor::FindPlayer(entry.first);
+        if (!player || !player->GetSession())
+            continue;
+        if (!best || entry.first < best->GetGUID())
+            best = player;
+    }
+    return best;
 }
 
 bool SocialPresence::IsHumanSession(Player const* player) const

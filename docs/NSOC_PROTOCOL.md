@@ -1,163 +1,95 @@
-# Native Social Protocol (NSOC) v1
+# NSOC protocol 01
 
-## Overview
+NSOC uses the existing WoW 3.3.5a addon-message whisper path. It does not add
+an opcode. The addon prefix is `NSOC`; the payload is tab-delimited and begins
+with `01`. AzerothCore's chat hook observes the combined
+`NSOC\t01\t...` frame. Frames are limited to 254 bytes.
 
-NSOC is a bidirectional protocol for communicating between the 3.3.5a WoW client and the AzerothCore server using the existing addon-message transport (CHAT_MSG_ADDON with LANG_ADDON).
+Text fields escape `\\` as `\\\\` and a tab as `\\t`. Request IDs contain
+1–16 ASCII alphanumeric characters. Malformed, oversized, unknown, or
+wrong-field-count requests are consumed safely and never mutate state.
 
-## Protocol Format
+## Public directory
 
-All messages use UTF-8 encoding and are delimited with tab characters (`\t`).
+Request:
 
-### Message Structure
-
-```
-<prefix>\t<version>\t<command>\t<data>\t<data>...
-```
-
-- **prefix**: Always `NSOC` (4 bytes)
-- **version**: Protocol version (2 bytes, currently `01`)
-- **command**: Operation code (see below)
-- **data**: Command-specific fields
-
-### Supported Commands
-
-#### 1. LIST (Request)
-
-```
-NSOC\t01\tLIST\t<request_id>
+```text
+NSOC  01  DIR_LIST  requestId
 ```
 
-**Fields:**
-- `request_id` (1-16 ASCII alphanumeric): Transaction ID for matching responses. Must be 1-16 characters, ASCII alphanumeric only (A-Z, a-z, 0-9). Non-alphanumeric or out-of-range request IDs are rejected with an ERROR response. Recommended: 4 characters (e.g., "ABCD")
+(`  ` represents a tab throughout this document.) The response is:
 
-**Example:**
-```
-NSOC\t01\tLIST\tABCD
-```
-
-#### 2. LIST_START (Response)
-
-```
-NSOC\t01\tLIST_START\t<request_id>\t<count>
+```text
+NSOC  01  DIR_START  requestId  entryCount
+NSOC  01  DIR_ENTRY  requestId  entryIndex  partIndex  ...fields
+NSOC  01  DIR_END    requestId
 ```
 
-**Fields:**
-- `request_id` (1-16 ASCII alphanumeric): Echoed from request
-- `count` (decimal, no zero padding): Total number of profiles that will follow
+Part zero fields are:
 
-#### 3. LIST_PROFILE (Response)
-
-```
-NSOC\t01\tLIST_PROFILE\t<request_id>\t<display_name>
+```text
+online(0|1), accountId, escapedDisplayName, [presence fields...]
 ```
 
-**Fields:**
-- `request_id` (1-16 ASCII alphanumeric): Echoed from request
-- `display_name` (variable): UTF-8 display name (escaped, see below)
+Continuation parts contain remaining presence fields. Parts and entries start
+at zero and are sent deterministically. Online presence has exactly six fields:
 
-#### 4. LIST_END (Response)
-
-```
-NSOC\t01\tLIST_END\t<request_id>
+```text
+escapedCharacterName, level, raceId, classId, faction(A|H), escapedLocation
 ```
 
-**Fields:**
-- `request_id` (1-16 ASCII alphanumeric): Echoed from request
+Race and class are DBC IDs localized by FrameXML. Location is the requester's
+localized zone name, or the localized map name inside an instance. An offline
+entry has no presence fields. An Appear Offline account is serialized in that
+same offline form—the live character name, level, race, class, faction, and
+location never enter the response.
 
-#### 5. ERROR (Response)
+Entries are online first, then offline, with case-insensitive display-name
+ordering and account ID as the final tie breaker. Only configured human
+profiles appear. Accounts rejected by the centralized server-side eligibility
+policy (the Playerbot prefix or `NativeSocial.ExcludedAccounts`) never appear.
+Authentication usernames never occur in this response.
 
-```
-NSOC\t01\tERROR\t<request_id>\t<error_code>\t<error_message>
-```
+The earlier `LIST` / `LIST_START` / `LIST_PROFILE` / `LIST_END` exchange is
+retained as a compatibility surface and still returns visible online display
+names only. New clients use `DIR_LIST`.
 
-**Fields:**
-- `request_id` (1-16 ASCII alphanumeric): Echoed from request (may be the default `0000` if the request ID itself was invalid)
-- `error_code` (4 uppercase hex digits): Numeric error code
-- `error_message` (variable): Human-readable error description
+## Administration
 
-### Error Codes
+All authorization is repeated server-side against the authenticated
+`WorldSession`. `ADMIN_CREATE_ACCOUNT` additionally requires AzerothCore's
+normal account-create RBAC permission. UI visibility and request fields do not
+grant authority.
 
-Error codes are rendered as 4 uppercase hex digits (e.g. `0005`); the defined values are:
+```text
+ADMIN_CAPS
+  -> ADMIN_CAPS_RESULT requestId authorized(0|1)
 
-- `0000`: Protocol error (malformed message)
-- `0001`: Unsupported protocol version
-- `0002`: Unknown command
-- `0003`: Message too long (exceeds 255 bytes)
-- `0004`: Invalid field count
-- `0005`: Module unavailable
+ADMIN_LIST
+  -> ADMIN_START requestId count
+     ADMIN_ENTRY requestId accountId configured(0|1) escapedDisplayName
+     ADMIN_END requestId
 
-## Escaping
+ADMIN_SET_NAME requestId accountId escapedDisplayName
+  -> ADMIN_RESULT requestId resultCode accountId escapedMessage
 
-Display names may contain tab characters. To safely include a tab in a display name, escape backslashes first, then tabs:
-
-1. Replace `\` with `\\` (doubled backslash)
-2. Replace `\t` (tab) with `\\t` (backslash followed by 't')
-
-Escaping backslashes before tabs keeps the two escapes unambiguous.
-
-When parsing, decode left to right: on a backslash, take the next character into account:
-
-1. `\\` → `\` (backslash)
-2. `\t` → tab
-3. Any other character is copied verbatim
-
-This decode is order-independent and is the exact inverse of the escaping above: a display name containing a literal `\t` is escaped to `\\t` and decodes back to `\t` unchanged.
-
-## Payload Size
-
-Each NSOC message must be ≤ 254 bytes (255 bytes is the AzerothCore limit, minus 1 byte for safety). Oversized messages — requests and responses — are rejected by the server and never truncated: a response that would exceed the limit is discarded with a server-side log entry, preserving protocol validity.
-
-## Chunking
-
-The LIST operation returns one profile per message. The client receives:
-1. LIST_START with the total count
-2. Zero or more LIST_PROFILE messages
-3. LIST_END to signal completion
-
-## Future Extensions
-
-The protocol namespace is designed to accommodate future operations:
-
-- `PRESENCE`: Presence update notifications
-- `SEND`: Account-to-account messaging
-- `FAVORITE`: Friends/favorites management
-- `BLOCK`: Ignore/block list management
-
-Each new operation follows the same pattern:
-- Request format with optional request_id
-- Response format with status/error handling
-- Chunked data transfer when appropriate
-
-## Examples
-
-### Request
-
-```
-NSOC\t01\tLIST\tABCD
+ADMIN_CREATE_ACCOUNT requestId escapedAccountName escapedPassword escapedDisplayName
+  -> ADMIN_RESULT requestId resultCode accountId escapedMessage
 ```
 
-### Successful Response (1 profile)
+`ADMIN_LIST` contains account IDs and profile state only; it deliberately omits
+login names. Passwords are passed only to `AccountMgr::CreateAccount`, are
+overwritten in temporary request storage where practical, are never logged,
+and never appear in a response. Display-name validation and uniqueness run
+before account creation. A profile failure after core account creation returns
+`PROFILE_SETUP_FAILED` and the new account ID for repair; the authentication
+account is not deleted.
 
+Errors use:
+
+```text
+NSOC  01  ERROR  requestId  fourDigitHexCode  escapedMessage
 ```
-NSOC\t01\tLIST_START\tABCD\t1
-NSOC\t01\tLIST_PROFILE\tABCD\tKevin
-NSOC\t01\tLIST_END\tABCD
-```
 
-### Error Response
-
-```
-NSOC\t01\tERROR\tABCD\t0005\tModule unavailable
-```
-
-## Implementation Notes
-
-1. **Protocol Versioning**: Version `01` is the initial version. Future versions will be backward-compatible where possible.
-
-2. **Request Validation**: Messages are length-gated at 254 bytes, must start with the exact `NSOC\t01\t` frame, and the request ID must be 1-16 ASCII alphanumeric characters. The LIST command requires exactly four fields. Requests that pass the length gate but fail the grammar checks are answered with an ERROR response and consumed as NSOC traffic.
-
-3. **Display Name Validation**: The server validates display names according to the SocialService rules (3-24 characters, UTF-8, no control characters).
-
-4. **Privacy**: The LIST operation only returns profiles where `appear_offline` is false and the account is currently online.
-
-5. **Playerbots**: Accounts controlled by playerbots are never included in any response.
+Codes cover protocol, command, length, field, unavailable, unauthorized, and
+validation failures. Responses never echo credentials.

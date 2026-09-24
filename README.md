@@ -1,201 +1,149 @@
 # mod-native-social
 
-An AzerothCore module providing **account-level presence** — identity, online
-state and privacy — built from the ground up with a hard dependency on
-**mod-content-manager** for its native 3.3.5a client patch.
+Native Social adds an account-level Players directory to AzerothCore WotLK
+3.3.5a. It is not Battle.net or Real ID emulation. The stable internal identity
+is the AzerothCore account ID; the public identity is a separate Native Social
+Display Name. Authentication usernames are never public directory data.
 
-Presence works per **account**, not per character: account-wide when online
-means any account, any realm character, any race/faction. This is the
-foundation (Phase 1) for the account-level messaging system planned for later
-phases.
+## Players directory
 
-## Non-negotiables
+The public directory is compiled from configured Native Social profiles, not
+from online `Player` objects. A configured human account therefore remains in
+the list while offline. Accounts without a Display Name are excluded from the
+ordinary list but remain visible by account ID to authorized administrators.
 
-- **Hard dependency on mod-content-manager.** The module is compiled next to
-  content-manager and discovers it at runtime through its
-  `ContentCapabilitiesV1::Provider` world-script ABI (vendored in
-  `src/api/ContentCapabilityApiV1.h`; same convention as the other native
-  modules). There is **no** unpatched-client or addon fallback: presence,
-  messaging and privacy are native-client features.
-- **No supported degraded/unpatched mode.** When mod-content-manager is
-  unavailable or required native client content is unavailable/invalid, the
-  module **fails clearly**: it logs the specific reason at startup, surfaces
-  it to operators and Game Masters (`.social diag` stays available), and
-  refuses to pretend it can serve its functionality through a command-only
-  substitute. The temporary `.social` commands are development/test tooling
-  while the native UI is under construction — they are **not** a supported
-  frontend, and Phase 2 hard-fails on missing client content rather than
-  degrading to them.
-- **No placeholder client packages.** Phase 1 deliberately ships no `*.epf`:
-  there is no real client UI content yet, so we do not produce a fake package
-  to exercise the Content Manager pipeline. `content/` documents the intended
-  package design; the real package lands with the first client functionality
-  in Phase 2 and is then declared mandatory by the server.
-- No Battle.net / Real ID terminology in user-facing or operational artifacts.
+At request time, the server enriches each visible online account with its
+active character name, level, race ID, class ID, faction, and localized zone or
+instance name. This data is transient and is never stored in the Native Social
+table. If one account has multiple simultaneous human sessions, the character
+with the lowest GUID is selected, giving a stable deterministic policy.
 
-## What this phase implements
+Ordering is online first and then offline, alphabetically by the
+case-insensitive Display Name key within each group, with account ID as the
+last tie breaker.
 
-- **Account display names** — unique per realm, case-insensitive, length
-  validated (`3..24` by default), stored in the auth database
-  (`native_social_account`). Identity in the game comes from the account, not
-  from the current character.
-- **Presence** — derived live from connected sessions (never persisted as a
-  boolean; an account is "online" while it holds at least one confirmed
-  human session). Presence state auto-rebuilds from login events after a
-  restart. Social presence appears only through the display name.
-- **Appear Offline** — a per-account privacy flag. Others only ever see the
-  advertised state; your own view and Game Master diagnostics still see the
-  true presence.
-- **Playerbot exclusion** — bot sessions (mod-playerbots) never count as
-  account presence. Identity is confirmed with a short settling delay so bot
-  AI attach timing cannot distort it. (See "Playerbots" below.)
-- **Content Manager integration** — a hard dependency: if the capability
-  provider is missing the module fails clearly. Required client content is
-  verified against `content_manager_package` (world DB) via
-  `content::RequiredSocialContent()`; while that set is empty (Phase 1,
-  no client content yet) the backend runs, and the moment real content is
-  declared the same check turns an absent/invalid package into a hard failure.
-- **Temporary developer commands** — `.social name/online/offline/status/list`
-  (plus `.social diag` for Game Masters). These are dev/test interfaces used
-  to exercise the backend while the native UI is under construction; they are
-  NOT a supported frontend. The Phase 2 client UI will use these same
-  `SocialService` facilities.
+## Privacy
 
-## Not implemented yet (planned)
+`appear_offline` is persistent and server-authoritative:
 
-- Account-level messaging, offline queue, unread indicators.
-- Friends / following, block & ignore, notifications, permissions.
-- The native client "Players" social tab (design + 3.3.5a client
-  investigation: `docs/NATIVE_UI_PLAN.md`).
-- Multi-realm shared-auth optimizations (see "Limitations").
-- NSOC protocol extensions (PRESENCE, SEND, FAVORITE, BLOCK operations).
+- no session: offline entry;
+- live session plus Appear Offline: the same offline entry;
+- live session and visible: online entry with transient character presence.
 
-## Architecture
+The directory compiler discards live presence for Appear Offline profiles
+before protocol serialization. Ordinary clients receive no hidden character,
+level, race, class, faction, zone, or instance fields to conceal in Lua.
 
-```
-src/
-  api/ContentCapabilityApiV1.h   vendored ABI (presence detection only)
-  SocialProfile.h/.cpp           profile struct, name validation, UTF-8 checks
-  SocialProfileStore.h/.cpp      auth persistence + in-memory index
-  SocialPresence.h/.cpp          live account presence + Playerbot exclusion
-  SocialService.h/.cpp           facade: integration probe, diagnostics, privacy queries
-  NativeSocialModule.cpp         world/player/command scripts + config
-  mod_native_social_loader.cpp   module loader (Addmod_native_socialScripts)
-conf/mod_native_social.conf.dist config template
-data/sql/db-auth/base/          auth SQL (auto-applied by the core updater)
-content/                        client content package design (docs only in Phase 1)
-```
+## Display Names
 
-`SocialService` is the single public surface the Phase 2 client protocol will
-talk to. Everything else stays behind it.
+Display Names default to 3–24 Unicode code points (hard maximum 48), are
+trimmed, must be valid UTF-8, and reject control characters plus WoW chat
+format characters `|` and `%`. ASCII case is folded for uniqueness, so `Kevin`
+and `kevin` conflict. The auth database unique key is authoritative across all
+realms sharing that database. Login usernames are never used as a fallback.
 
-### Presence model
+Players retain the existing `.social name` development/recovery path. An
+administrator can assign or change any eligible account's name with
+`.social admin name <accountId> <Display Name>`.
 
-An `OnPlayerLogin` event only *queues* a session for classification. A short
-settling period (1 s pacing, plus an immediate flush before any presence
-query) lets the session fully attach (including any Playerbot AI) before the
-session is confirmed. Logout removes the session regardless of its
-classification state. Because presence is derived, there is nothing to
-"reset" — after a restart every session simply re-queues on login.
+## Human-account filtering
 
-## Requirements
+Offline random-bot accounts are excluded by authentication-username prefix
+(`NativeSocial.PlayerbotAccountPrefix`, default `rndbot`). Standalone service
+or bot accounts are excluded with the comma-separated
+`NativeSocial.ExcludedAccounts` setting (default `AHBOT`). Explicit entries are
+trimmed, empty entries are ignored, and both checks are case-insensitive. An
+account matching either rule is not eligible for Native Social.
 
-- AzerothCore (wotlk) with this module under `modules/`.
-- **mod-content-manager** as a sibling module (REQUIRED at build and runtime).
-- mod-playerbots — optional; the module compiles with or without it.
-- The auth SQL below (`data/sql/db-auth/base`) — the core applies it
-  automatically on the next startup.
+This filtering runs only on the server. Authentication usernames are used to
+derive excluded account IDs and are never sent through the public Players
+directory. The module does not link against Playerbot. When Playerbot headers
+are present, live sessions are also classified through `WorldSession::IsBot()`
+and the AI registry, so prefixed accounts remain excluded whether online or
+offline while other observed bot sessions are excluded at runtime.
 
-## Install
+## Administration and security
 
-1. Clone into `modules/mod-native-social` and build AzerothCore normally
-   (static or `MODULES=default`). No CMake file is required; the module is a
-   standard script module and the loader is generated as
-   `Addmod_native_socialScripts()`.
-2. Copy `conf/mod_native_social.conf.dist` to your config dir as
-   `mod_native_social.conf` and adjust as needed.
-3. Apply the auth SQL (or let the core updater do it). The updater picks up
-   `data/sql/db-auth/base/` automatically.
-4. Restart the worldserver. The startup log reports the profile count, presence
-   and the client-content requirement state.
+NSOC provides authorized operations to list eligible account IDs/profile
+state, assign/change a Display Name, and create an AzerothCore account plus its
+Native Social profile as one administrative workflow. Account creation calls
+`AccountMgr::CreateAccount`, the same core service used by `.account create`;
+it does not synthesize a chat command.
 
-Verification: `.social diag` in-game (Game Master) prints provider presence,
-required-content state and counters.
+Every request is authorized against the authenticated `WorldSession` at the
+server. Administrative access requires `SEC_ADMINISTRATOR`; creation also
+requires `RBAC_PERM_COMMAND_ACCOUNT_CREATE`. Client flags and UI visibility
+are ignored. Passwords are never logged, stored by Native Social, or returned.
 
-Phase 1 ships **no** client package (`content/` is design-only until real
-client functionality exists). From Phase 2 onward, install the package with
-mod-content-manager (see `content/README.md`); a missing required package then
-fails the module clearly rather than degrading to the developer commands.
+Validation failure creates nothing. Core account failure creates no profile.
+If core creation succeeds but profile setup fails, the result explicitly
+reports partial failure and returns the account ID for repair; the module does
+not attempt compensating deletion.
 
-## Configuration (`mod_native_social.conf`)
+Headless recovery commands:
 
-| Option | Default | Meaning |
+| Command | Access | Purpose |
 | --- | --- | --- |
-| `NativeSocial.Enable` | `1` | master switch |
-| `NativeSocial.DisplayNameMinLength` | `3` | min display-name length |
-| `NativeSocial.DisplayNameMaxLength` | `24` | max length (hard cap 48) |
+| `.social admin list` | administrator | list human account IDs and profile state |
+| `.social admin name <id> <name>` | administrator | assign/change Display Name |
+| `.social online` | player | clear Appear Offline |
+| `.social offline` | player | enable Appear Offline |
+| `.social status [name]` | player | inspect advertised state |
+| `.social diag` | GM | integration/database/presence diagnostics |
 
-## Commands
+The graphical management form is deferred; the secured server contract is in
+place for it.
 
-| Command | Access | Meaning |
-| --- | --- | --- |
-| `.social name <name>` | all | set your account display name |
-| `.social online` | all | clear appear-offline (you are visible) |
-| `.social offline` | all | appear offline to other players |
-| `.social status [<name>]` | all | your own profile, or another account's advertised presence |
-| `.social list` | all | advertised-online accounts with display names |
-| `.social diag` | GM | module/provider/package/presence diagnostics |
+## Client package and integration
 
-Privacy rule: `status`/`list` only ever show the **advertised** state. The
-flagged-away state of an online, appear-offline account is indistinguishable
-from being offline.
+`content/mod-native-social.epf` is schema 3 and declares exactly
+`protected-framexml`. It ships patched `FriendsFrame.lua`, `FriendsFrame.xml`,
+and `NativeSocial.lua`, adding a functional Players tab to the WotLK Social
+window. The client localizes race/class IDs using its own strings while the
+server localizes location for the requesting session.
 
-## Playerbots
+The semantic flow is:
 
-When built with mod-playerbots, sessions are classified as bots via their
-`WorldSession::IsBot()` flag (mod-playerbots only runs against the Playerbot
-fork branch of AzerothCore, which provides that flag) with the
-`GET_PLAYERBOT_AI` AI-registry lookup as a defensive secondary check, both
-compiled in under `#if __has_include("Playerbots.h")`. Account-owned and
-random-bot sessions never contribute to account presence. This works even if
-our `OnPlayerLogin` runs before Playerbots finishes attaching a `PlayerbotAI`,
-because the session itself is flagged at construction. Without mod-playerbots
-the guard is compiled out and every real session counts.
+```text
+module EPF -> mod-content-manager build requirements -> mod-realm-config
+realm.conf -> Portalkeeper -> capability-appropriate realm executable
+```
 
-## Database (`auth`)
+Native Social knows only the semantic requirement. It contains no executable
+hashes, offsets, recipe IDs, generations, or binary patch details.
 
-`native_social_account` — one row per account that has adopted a display name.
+## NSOC transport
 
-- `account_id` (PK), `display_name`, `display_name_key` (unique,
-  case-insensitive lookup key), `appear_offline`, `created_at`, `updated_at`.
-- Re-runnable SQL; safe for the core updater on every boot.
-- Rows are never deleted by the module; presence is derived, so restarting
-  does not clear anyone's profile.
+NSOC extends the existing addon-message whisper transport; there is no custom
+opcode. `DIR_LIST` returns offline and online account entries using deterministic
+entry/part framing below the 254-byte limit. Legacy online-only `LIST` remains
+for compatibility. See [docs/NSOC_PROTOCOL.md](docs/NSOC_PROTOCOL.md).
 
-## Limitations
+## Database
 
-- **Display-name uniqueness scope**: `display_name_key` is a `UNIQUE` column
-  in the shared auth database. It is unique across every account in every
-  realm that mounts that auth DB, not just this realm's players. The module
-  treats the database unique constraint as authoritative: uniqueness is
-  re-checked against the DB (not just the local in-memory index) before a
-  write, and the result of a write is verified by reading back what actually
-  committed before the local state is updated. Two realms sharing one auth DB
-  *can* race on the same name; the unique key resolves the race deterministically
-  (one writer owns the name, the other gets a clear "name taken" error). This
-  is not a concern on a single-realm server.
-- **Non-ASCII names**: case-insensitivity folds only ASCII; two names
-  differing solely by non-ASCII case are treated as distinct. Validated as
-  UTF-8 and stored in the utf8mb4 column (display width = code points), but
-  the 3.3.5a client renders these best-effort.
-- **Compiled verify**: this repository was developed and reviewed in an
-  environment without a local AzerothCore build tree; API usage mirrors the
-  current AzerothCore master (hook registration, `ConfigValueCache`,
-  `Acore::ChatCommands`, DB pools, module SQL updater paths). A real compile
-  on the target tree is still expected as part of deployment.
+Persistent data remains in the auth database table `native_social_account`:
+account ID, Display Name/key, Appear Offline, and timestamps. The existing
+convergent `CREATE TABLE IF NOT EXISTS` base migration is sufficient for this
+phase; no presence or duplicated character/account data was added.
 
-## License
+## Build and test
 
-Apache-2.0 (see `LICENSE`). The vendored
-`src/api/ContentCapabilityApiV1.h` is owned by the Content Manager project and
-is reproduced verbatim for ABI discovery.
+Install under AzerothCore `modules/mod-native-social`, apply the auth SQL, copy
+the config, and build normally. mod-content-manager is required by the existing
+module integration; Playerbot is optional.
+
+Standalone domain/package tests:
+
+```bash
+bash tests/run_standalone.sh
+```
+
+These cover validation, directory membership/order, configured account filtering,
+Appear Offline suppression, framing/chunking, administrative denial/failure/
+partial-success paths, and the schema-3 EPF. A compile against the target
+AzerothCore/Playerbot fork and live behavior remain PTR acceptance items.
+
+## Deferred
+
+Favorites, blocking, direct messages, offline messages, unread queues,
+cross-realm social, and a graphical admin form are intentionally deferred.

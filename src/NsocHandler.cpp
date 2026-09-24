@@ -2,285 +2,263 @@
 
 #include "Chat.h"
 #include "Log.h"
+#include "NsocCodec.h"
 #include "Player.h"
+#include "SocialAdmin.h"
+#include "SocialDirectory.h"
 #include "SocialService.h"
 #include "WorldSession.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <limits>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace nativesocial
 {
-
-bool NsocHandler::IsNsocMessage(std::string const& message)
+namespace
 {
-    // NSOC messages start with "NSOC\t01\t"
-    if (message.size() < 8)
+namespace command
+{
+char constexpr List[] = "LIST";
+char constexpr ListStart[] = "LIST_START";
+char constexpr ListProfile[] = "LIST_PROFILE";
+char constexpr ListEnd[] = "LIST_END";
+char constexpr DirectoryList[] = "DIR_LIST";
+char constexpr DirectoryStart[] = "DIR_START";
+char constexpr DirectoryEntry[] = "DIR_ENTRY";
+char constexpr DirectoryEnd[] = "DIR_END";
+char constexpr AdminCaps[] = "ADMIN_CAPS";
+char constexpr AdminCapsResult[] = "ADMIN_CAPS_RESULT";
+char constexpr AdminList[] = "ADMIN_LIST";
+char constexpr AdminStart[] = "ADMIN_START";
+char constexpr AdminEntry[] = "ADMIN_ENTRY";
+char constexpr AdminEnd[] = "ADMIN_END";
+char constexpr AdminSetName[] = "ADMIN_SET_NAME";
+char constexpr AdminCreate[] = "ADMIN_CREATE_ACCOUNT";
+char constexpr AdminResult[] = "ADMIN_RESULT";
+char constexpr Error[] = "ERROR";
+}
+
+bool ValidRequestId(std::string const& value)
+{
+    return !value.empty() && value.size() <= nsoch::MaxRequestIdLength &&
+        std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isalnum(c) != 0; });
+}
+
+bool ParseAccountId(std::string const& value, std::uint32_t& out)
+{
+    if (value.empty() || value.size() > 10)
         return false;
-    
-    return message.compare(0, 4, nsoch::Prefix) == 0 &&
-           message[4] == nsoch::Delimiter &&
-           message.compare(5, 2, nsoch::Version) == 0 &&
-           message[7] == nsoch::Delimiter;
+    std::uint64_t parsed = 0;
+    for (unsigned char c : value)
+    {
+        if (!std::isdigit(c))
+            return false;
+        parsed = parsed * 10 + (c - '0');
+        if (parsed > std::numeric_limits<std::uint32_t>::max())
+            return false;
+    }
+    out = static_cast<std::uint32_t>(parsed);
+    return out != 0;
 }
 
-std::vector<std::string> NsocHandler::SplitMessage(std::string const& message)
+std::string ErrorFrame(std::string const& requestId, std::uint16_t code, std::string const& detail)
 {
-    std::vector<std::string> fields;
-    std::size_t start = 0;
-    std::size_t end = message.find(nsoch::Delimiter);
-    
-    while (end != std::string::npos)
-    {
-        fields.push_back(message.substr(start, end - start));
-        start = end + 1;
-        end = message.find(nsoch::Delimiter, start);
-    }
-    
-    // Add the last field
-    if (start < message.size())
-    {
-        fields.push_back(message.substr(start));
-    }
-    
-    return fields;
+    char codeBuffer[5];
+    std::snprintf(codeBuffer, sizeof(codeBuffer), "%04X", code);
+    return nsocc::Frame(command::Error, { requestId, codeBuffer, nsocc::Escape(detail) });
 }
 
-std::string NsocHandler::EscapeDisplayName(std::string const& displayName)
+void SendError(WorldSession* session, std::string const& requestId,
+    std::uint16_t code, std::string const& detail)
 {
-    // Escape backslashes first, then tabs (backslash -> "\\", tab -> "\t").
-    // A single left-to-right pass over the source cannot double-process either
-    // escape, so backslash handling is unambiguous and the result is reversible.
-    std::string escaped;
-    escaped.reserve(displayName.size() * 2);
-    for (char c : displayName)
-    {
-        if (c == '\\')
-            escaped += "\\\\";
-        else if (c == '\t')
-            escaped += "\\t";
-        else
-            escaped += c;
-    }
-    return escaped;
+    NsocHandler::SendResponse(session, ErrorFrame(requestId, code, detail));
 }
 
+bool ServiceReady(WorldSession* session, std::string const& requestId)
+{
+    if (SocialService::Instance().IsInitialized() && SocialService::Instance().Available())
+        return true;
+    SendError(session, requestId, nsoch::ErrorUnavailable, "Module unavailable");
+    return false;
+}
 
+void SendLegacyList(WorldSession* session, std::string const& requestId)
+{
+    auto const profiles = SocialService::Instance().ListAdvertisedOnline();
+    NsocHandler::SendResponse(session, nsocc::Frame(command::ListStart,
+        { requestId, std::to_string(profiles.size()) }));
+    for (SocialProfile const& profile : profiles)
+        NsocHandler::SendResponse(session, nsocc::Frame(command::ListProfile,
+            { requestId, nsocc::Escape(profile.displayName) }));
+    NsocHandler::SendResponse(session, nsocc::Frame(command::ListEnd, { requestId }));
+}
+
+void SendDirectory(WorldSession* session, std::string const& requestId)
+{
+    auto const entries = SocialService::Instance().BuildPublicDirectory(session);
+    NsocHandler::SendResponse(session, nsocc::Frame(command::DirectoryStart,
+        { requestId, std::to_string(entries.size()) }));
+    for (std::size_t i = 0; i < entries.size(); ++i)
+    {
+        auto identity = DirectoryEntryIdentityFields(entries[i]);
+        auto presence = DirectoryEntryPresenceFields(entries[i]);
+        identity[2] = nsocc::Escape(identity[2]);
+        if (!presence.empty())
+        {
+            presence[0] = nsocc::Escape(presence[0]);
+            presence.back() = nsocc::Escape(presence.back());
+        }
+        auto const frames = nsocc::EncodeEntryFrames(command::DirectoryEntry,
+            requestId, static_cast<std::uint32_t>(i), identity, presence);
+        if (frames.empty())
+        {
+            SendError(session, requestId, nsoch::ErrorLength, "Directory entry exceeds transport budget");
+            return;
+        }
+        for (std::string const& frame : frames)
+            NsocHandler::SendResponse(session, frame);
+    }
+    NsocHandler::SendResponse(session, nsocc::Frame(command::DirectoryEnd, { requestId }));
+}
+
+void SendAdminProfiles(WorldSession* session, std::string const& requestId)
+{
+    SocialService& service = SocialService::Instance();
+    if (!service.IsAuthorizedAdmin(session))
+    {
+        SendError(session, requestId, nsoch::ErrorUnauthorized, "Administrator authorization required");
+        return;
+    }
+    auto const states = service.ListAdminProfiles(session);
+    NsocHandler::SendResponse(session, nsocc::Frame(command::AdminStart,
+        { requestId, std::to_string(states.size()) }));
+    for (auto const& state : states)
+        NsocHandler::SendResponse(session, nsocc::Frame(command::AdminEntry,
+            { requestId, std::to_string(state.accountId), state.configured ? "1" : "0",
+              nsocc::Escape(state.displayName) }));
+    NsocHandler::SendResponse(session, nsocc::Frame(command::AdminEnd, { requestId }));
+}
+
+void SendAdminResult(WorldSession* session, std::string const& requestId, AdminResult const& result)
+{
+    NsocHandler::SendResponse(session, nsocc::Frame(command::AdminResult,
+        { requestId, AdminResultCodeName(result.code), std::to_string(result.accountId),
+          nsocc::Escape(result.message) }));
+}
+}
 
 bool NsocHandler::ParseRequest(WorldSession* session, std::string const& message)
 {
-    if (message.size() > nsoch::MaxMessageLength)
+    if (message.size() > nsocc::MaxMessageLength)
+        return true;
+    std::vector<std::string> fields = nsocc::Split(message);
+    if (fields.size() < 4 || fields[0] != nsocc::Prefix || fields[1] != nsocc::Version)
+        return true;
+
+    std::string const& requestId = fields[3];
+    if (!ValidRequestId(requestId))
     {
-        LOG_ERROR("module.native_social", "NSOC: Message too long ({} bytes), rejecting", message.size());
-        return false;
+        SendError(session, "0000", nsoch::ErrorProtocol, "Invalid request ID");
+        return true;
     }
-    
-    std::vector<std::string> fields = SplitMessage(message);
-    
-    // Minimum fields: prefix, version, command
-    if (fields.size() < 3)
+    if (!ServiceReady(session, requestId))
+        return true;
+
+    std::string const& cmd = fields[2];
+    if (cmd == command::List && fields.size() == 4)
+        SendLegacyList(session, requestId);
+    else if (cmd == command::DirectoryList && fields.size() == 4)
+        SendDirectory(session, requestId);
+    else if (cmd == command::AdminCaps && fields.size() == 4)
+        SendResponse(session, nsocc::Frame(command::AdminCapsResult,
+            { requestId, SocialService::Instance().IsAuthorizedAdmin(session) ? "1" : "0" }));
+    else if (cmd == command::AdminList && fields.size() == 4)
+        SendAdminProfiles(session, requestId);
+    else if (cmd == command::AdminSetName && fields.size() == 6)
     {
-        LOG_ERROR("module.native_social", "NSOC: Malformed message (insufficient fields)");
-        return false;
-    }
-    
-    // Check prefix and version
-    if (fields[0] != nsoch::Prefix || fields[1] != nsoch::Version)
-    {
-        LOG_ERROR("module.native_social", "NSOC: Invalid prefix or version");
-        return false;
-    }
-    
-    std::string const& command = fields[2];
-    
-    // Extract request ID - needed for error responses
-    RequestId requestId;
-    if (fields.size() >= 4)
-    {
-        requestId = fields[3];
-        // Request IDs must be ASCII alphanumeric (A-Z, a-z, 0-9), 1-16 characters.
-        bool const validRequestId = !requestId.empty()
-            && requestId.size() <= nsoch::MaxRequestIdLength
-            && std::all_of(requestId.begin(), requestId.end(),
-                [](unsigned char c) { return std::isalnum(c) != 0; });
-        if (!validRequestId)
+        if (!SocialService::Instance().IsAuthorizedAdmin(session))
         {
-            LOG_ERROR("module.native_social", "NSOC: Invalid request ID ({} bytes, must be 1-{} ASCII alphanumeric)",
-                requestId.size(), nsoch::MaxRequestIdLength);
-            SendResponse(session, BuildErrorResponse("0000", nsoch::ErrorProtocol, "Invalid request ID"));
+            SendError(session, requestId, nsoch::ErrorUnauthorized, "Administrator authorization required");
             return true;
         }
-    }
-    else
-    {
-        // Default request ID if not provided
-        requestId = "0000";
-    }
-    
-    if (command == nsoc_cmd::List)
-    {
-        // LIST command must have exactly 4 fields
-        if (fields.size() != 4)
+        std::uint32_t accountId = 0;
+        if (!ParseAccountId(fields[4], accountId))
         {
-            LOG_ERROR("module.native_social", "NSOC: LIST command has {} fields, expected 4", fields.size());
-            SendResponse(session, BuildErrorResponse(requestId, nsoch::ErrorFields, "LIST command has wrong field count"));
+            SendError(session, requestId, nsoch::ErrorValidation, "Invalid account ID");
             return true;
         }
-        
-        HandleListCommand(session, requestId);
-        return true;
+        NameResult const result = SocialService::Instance().AdminSetDisplayName(
+            session, accountId, nsocc::Unescape(fields[5]));
+        AdminResult response;
+        response.code = result == NameResult::Ok ? AdminResultCode::Success :
+            (result == NameResult::AlreadyTaken ? AdminResultCode::DisplayNameTaken :
+             AdminResultCode::ProfileSetupFailed);
+        response.accountId = accountId;
+        response.message = result == NameResult::Ok ? "Display name saved" :
+            "Display name " + NameResultToString(result);
+        SendAdminResult(session, requestId, response);
     }
-    else if (command == nsoc_cmd::Error || 
-             command == nsoc_cmd::ListStart || 
-             command == nsoc_cmd::ListProfile || 
-             command == nsoc_cmd::ListEnd)
+    else if (cmd == command::AdminCreate && fields.size() == 7)
     {
-        // These are response codes, not request codes
-        LOG_ERROR("module.native_social", "NSOC: Received response code as request: {}", command);
-        SendResponse(session, BuildErrorResponse(requestId, nsoch::ErrorProtocol, "Response code received as request"));
-        return true;
+        std::string const accountName = nsocc::Unescape(fields[4]);
+        std::string password = nsocc::Unescape(fields[5]);
+        std::string const displayName = nsocc::Unescape(fields[6]);
+        fields[5].assign(fields[5].size(), '\0');
+        AdminResult const result = SocialService::Instance().AdminCreateAccount(
+            session, accountName, std::move(password), displayName);
+        SendAdminResult(session, requestId, result);
     }
     else
-    {
-        LOG_ERROR("module.native_social", "NSOC: Unknown command: {}", command);
-        SendResponse(session, BuildErrorResponse(requestId, nsoch::ErrorCommand, "Unknown command"));
-        return true;
-    }
+        SendError(session, requestId,
+            (cmd == command::List || cmd == command::DirectoryList || cmd == command::AdminCaps ||
+             cmd == command::AdminList || cmd == command::AdminSetName || cmd == command::AdminCreate)
+                ? nsoch::ErrorFields : nsoch::ErrorCommand,
+            "Unknown command or wrong field count");
+    return true;
 }
 
-void NsocHandler::HandleListCommand(WorldSession* session, RequestId const& requestId)
+bool NsocHandler::HandleRequest(WorldSession* session, std::string& message)
 {
-    if (!SocialService::Instance().IsInitialized() || !SocialService::Instance().Available())
-    {
-        LOG_ERROR("module.native_social", "NSOC: LIST command received but module is not available");
-        SendResponse(session, BuildErrorResponse(requestId, nsoch::ErrorUnavailable, "Module unavailable"));
-        return;
-    }
-    
-    // Get the list of advertised online profiles
-    std::vector<SocialProfile> profiles = SocialService::Instance().ListAdvertisedOnline();
-    
-    // Send LIST_START
-    SendResponse(session, BuildListStartResponse(requestId, static_cast<std::uint32_t>(profiles.size())));
-    
-    // Send each profile
-    for (auto const& profile : profiles)
-    {
-        SendResponse(session, BuildListProfileResponse(requestId, profile.displayName));
-    }
-    
-    // Send LIST_END
-    SendResponse(session, BuildListEndResponse(requestId));
-}
-
-std::string NsocHandler::BuildErrorResponse(RequestId const& requestId, std::uint16_t errorCode, std::string const& errorMessage)
-{
-    std::string response = nsoch::Prefix;
-    response += nsoch::Delimiter;
-    response += nsoch::Version;
-    response += nsoch::Delimiter;
-    response += nsoc_cmd::Error;
-    response += nsoch::Delimiter;
-    response += requestId;
-    response += nsoch::Delimiter;
-    
-    // Format error code as 4-digit hex
-    char codeBuffer[5];
-    snprintf(codeBuffer, sizeof(codeBuffer), "%04X", errorCode);
-    response += codeBuffer;
-    response += nsoch::Delimiter;
-    
-    response += errorMessage;
-    
-    return response;
-}
-
-std::string NsocHandler::BuildListStartResponse(RequestId const& requestId, std::uint32_t count)
-{
-    std::string response = nsoch::Prefix;
-    response += nsoch::Delimiter;
-    response += nsoch::Version;
-    response += nsoch::Delimiter;
-    response += nsoc_cmd::ListStart;
-    response += nsoch::Delimiter;
-    response += requestId;
-    response += nsoch::Delimiter;
-    
-    char countBuffer[11]; // 10 digits + null terminator
-    snprintf(countBuffer, sizeof(countBuffer), "%u", count);
-    response += countBuffer;
-    
-    return response;
-}
-
-std::string NsocHandler::BuildListProfileResponse(RequestId const& requestId, std::string const& displayName)
-{
-    std::string response = nsoch::Prefix;
-    response += nsoch::Delimiter;
-    response += nsoch::Version;
-    response += nsoch::Delimiter;
-    response += nsoc_cmd::ListProfile;
-    response += nsoch::Delimiter;
-    response += requestId;
-    response += nsoch::Delimiter;
-    
-    // Escape the display name
-    std::string escapedName = EscapeDisplayName(displayName);
-    response += escapedName;
-    
-    return response;
-}
-
-std::string NsocHandler::BuildListEndResponse(RequestId const& requestId)
-{
-    std::string response = nsoch::Prefix;
-    response += nsoch::Delimiter;
-    response += nsoch::Version;
-    response += nsoch::Delimiter;
-    response += nsoc_cmd::ListEnd;
-    response += nsoch::Delimiter;
-    response += requestId;
-    
-    return response;
-}
-
-bool NsocHandler::HandleRequest(WorldSession* session, std::string const& message)
-{
-    if (!IsNsocMessage(message))
-    {
+    if (message.size() < 5 || message.compare(0, 4, nsocc::Prefix) != 0 ||
+        message[4] != nsocc::Delimiter)
         return false;
+    bool const sensitive = message.find("\tADMIN_CREATE_ACCOUNT\t") != std::string::npos;
+    auto consume = [&](bool result)
+    {
+        if (sensitive)
+            message.assign(message.size(), '\0');
+        return result;
+    };
+    if (message.size() > nsocc::MaxMessageLength)
+    {
+        SendError(session, "0000", nsoch::ErrorLength, "Request exceeds transport budget");
+        return consume(true);
     }
-    
-    LOG_DEBUG("module.native_social", "NSOC: Received message from {}: {}", 
-              session ? session->GetPlayerInfo() : "unknown", message);
-    
-    return ParseRequest(session, message);
+    if (!nsocc::IsNsoc(message))
+    {
+        SendError(session, "0000", nsoch::ErrorVersion, "Unsupported NSOC protocol version");
+        return consume(true);
+    }
+    // Raw frames are never logged: ADMIN_CREATE_ACCOUNT may contain a password.
+    bool const consumed = ParseRequest(session, message);
+    return consume(consumed);
 }
 
 void NsocHandler::SendResponse(WorldSession* session, std::string const& response)
 {
     if (!session || !session->GetPlayer())
+        return;
+    if (response.size() > nsocc::MaxMessageLength)
     {
-        LOG_ERROR("module.native_social", "NSOC: Cannot send response - invalid session");
+        LOG_ERROR("module.native_social", "NSOC response exceeds {} bytes; discarded", nsocc::MaxMessageLength);
         return;
     }
-    
-    // Check message length
-    if (response.size() > nsoch::MaxMessageLength)
-    {
-        LOG_ERROR("module.native_social", "NSOC: Response too long ({} bytes), discarding", response.size());
-        // Do not send truncated messages - they would break protocol validity
-        return;
-    }
-    
-    LOG_DEBUG("module.native_social", "NSOC: Sending response to {}: {}", 
-              session->GetPlayerInfo(), response);
-    
-    // Send as a LANG_ADDON whisper to the requesting player's own client,
-    // which surfaces it to the patched client as an addon message.
     Player* const player = session->GetPlayer();
     player->Whisper(response, LANG_ADDON, player);
 }
-
-} // namespace nativesocial
+}

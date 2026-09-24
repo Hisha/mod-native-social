@@ -2,13 +2,21 @@
 
 #include "ContentCapabilityApiV1.h"
 
+#include "AccountMgr.h"
 #include "DatabaseEnv.h"
+#include "DBCStores.h"
 #include "Field.h"
 #include "QueryResult.h"
 #include "Log.h"
+#include "Map.h"
+#include "Player.h"
+#include "RBAC.h"
 #include "ScriptMgr.h"
+#include "WorldSession.h"
 
 #include <algorithm>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace nativesocial
@@ -19,11 +27,10 @@ namespace content
 {
 std::vector<RequiredContent> const& RequiredSocialContent()
 {
-    // Phase 1 ships no client UI, so nothing is required yet. The moment the
-    // first real client functionality exists (Phase 2+), declare its package
-    // here; ResolveRequiredContent() then hard-fails the module when it is
-    // absent or invalid. There is deliberately no configuration switch to
-    // relax this later.
+    // This legacy provider surface is for ACTIVE/APPLIED vendor capabilities.
+    // The Players UI is raw FrameXML whose protected-framexml requirement is
+    // declared in the schema-3 EPF and propagated by the build/realm/launcher
+    // chain, so inventing a vendor declaration here would be incorrect.
     static std::vector<RequiredContent> const required;
     return required;
 }
@@ -38,11 +45,14 @@ SocialService& SocialService::Instance()
     return sSocialService ? *sSocialService : fallback;
 }
 
-void SocialService::Configure(bool enabled, std::uint32_t displayNameMinLength, std::uint32_t displayNameMaxLength, bool reload)
+void SocialService::Configure(bool enabled, std::uint32_t displayNameMinLength,
+    std::uint32_t displayNameMaxLength, std::string playerbotAccountPrefix,
+    std::string excludedAccounts, bool reload)
 {
     _enabled = enabled;
     _displayNameMinLength = std::max<std::uint32_t>(1, displayNameMinLength);
     _displayNameMaxLength = std::min<std::uint32_t>(48, std::max<std::uint32_t>(_displayNameMinLength, displayNameMaxLength));
+    _accountEligibility.Configure(std::move(playerbotAccountPrefix), std::move(excludedAccounts));
 
     if (!_enabled)
     {
@@ -54,8 +64,13 @@ void SocialService::Configure(bool enabled, std::uint32_t displayNameMinLength, 
     }
     // The initial flow initializes in OnStartup. A reload can switch the
     // module on after the server is already running, so re-initialize here.
-    if (reload && !_initialized)
-        Initialize();
+    if (reload)
+    {
+        if (!_initialized)
+            Initialize();
+        else if (_available)
+            LoadConfiguredAccountExclusions();
+    }
 }
 
 bool SocialService::Initialize()
@@ -95,6 +110,8 @@ bool SocialService::Initialize()
         return false;
     }
 
+    LoadConfiguredAccountExclusions();
+
     SocialPresence::Instance().Clear();
 
     _available = true;
@@ -109,10 +126,9 @@ bool SocialService::Initialize()
     if (content::RequiredSocialContent().empty())
     {
         LOG_INFO("server.loading",
-            "Native Social phase-1 backend test state: no client content is shipped yet "
-            "(RequiredSocialContent() is empty). The .social commands are development/test "
-            "interfaces only and are not a supported frontend; phase 2+ declares required "
-            "content and this module will hard-fail if it is unavailable.");
+            "Native Social has no vendor-backed server content requirements. The Players "
+            "FrameXML package declares protected-framexml through EPF schema 3; capability "
+            "publication and launcher selection are enforced downstream.");
     }
     return true;
 }
@@ -127,6 +143,7 @@ void SocialService::Shutdown()
     _packageInstalled = false;
     _packageVersion.clear();
     _contentRequirementErrors.clear();
+    _excludedAccountIds.clear();
     SocialPresence::Instance().Clear();
     SocialProfileStore::Instance().Clear();
 }
@@ -202,7 +219,7 @@ bool SocialService::IsAccountOnline(std::uint32_t accountId) const
 
 bool SocialService::IsAccountAdvertisedOnline(std::uint32_t accountId, SocialProfile const& profile) const
 {
-    if (profile.appearOffline)
+    if (profile.appearOffline || IsExcludedAccount(accountId))
         return false;
     return SocialPresence::Instance().IsOnline(accountId);
 }
@@ -215,13 +232,163 @@ std::vector<SocialProfile> SocialService::ListAdvertisedOnline() const
         {
             SocialProfile profile;
             GetProfile(accountId, profile);
-            if (!profile.displayName.empty() && !profile.appearOffline)
+            if (!profile.displayName.empty() && IsAccountAdvertisedOnline(accountId, profile))
                 online.push_back(profile);
             return true;
         });
     std::sort(online.begin(), online.end(),
         [](SocialProfile const& a, SocialProfile const& b) { return a.displayName < b.displayName; });
     return online;
+}
+
+std::string SocialService::PresenceLocation(Player const* player, WorldSession const* viewer) const
+{
+    if (!player || !viewer)
+        return "Unknown";
+    LocaleConstant const locale = viewer->GetSessionDbcLocale();
+    if (Map const* map = player->FindMap())
+    {
+        if (map->Instanceable())
+            if (MapEntry const* mapEntry = sMapStore.LookupEntry(player->GetMapId()))
+                return mapEntry->name[locale];
+    }
+    if (AreaTableEntry const* area = sAreaTableStore.LookupEntry(player->GetZoneId()))
+        return area->area_name[locale];
+    return "Unknown";
+}
+
+std::vector<DirectoryEntry> SocialService::BuildPublicDirectory(WorldSession const* viewer)
+{
+    FlushPresence();
+
+    std::vector<SocialProfile> const profiles = SocialProfileStore::Instance().AllProfiles();
+    std::unordered_set<std::uint32_t> excludedAccounts;
+    for (SocialProfile const& profile : profiles)
+        if (IsExcludedAccount(profile.accountId))
+            excludedAccounts.insert(profile.accountId);
+
+    DirectoryPresenceMap live;
+    for (SocialProfile const& profile : profiles)
+    {
+        if (excludedAccounts.count(profile.accountId) != 0)
+            continue;
+        Player* player = SocialPresence::Instance().ActiveCharacterForAccount(profile.accountId);
+        if (!player)
+            continue;
+        PresenceInfo presence;
+        presence.online = true;
+        presence.characterName = player->GetName();
+        presence.level = player->GetLevel();
+        presence.race = player->GetRace();
+        presence.charClass = player->GetClass();
+        presence.faction = player->GetTeamId() == TEAM_HORDE ? 'H' : 'A';
+        presence.zone = PresenceLocation(player, viewer);
+        live.emplace(profile.accountId, std::move(presence));
+    }
+    return BuildDirectory(profiles, excludedAccounts, live);
+}
+
+bool SocialService::IsAuthorizedAdmin(WorldSession const* session) const
+{
+    return session && session->GetSecurity() >= SEC_ADMINISTRATOR;
+}
+
+bool SocialService::IsEligibleHumanAccount(std::uint32_t accountId) const
+{
+    if (!accountId || IsExcludedAccount(accountId))
+        return false;
+    QueryResult account = LoginDatabase.Query(
+        "SELECT id FROM account WHERE id = " + std::to_string(accountId));
+    return static_cast<bool>(account);
+}
+
+std::vector<SocialService::AdminProfileState> SocialService::ListAdminProfiles(WorldSession const* session) const
+{
+    std::vector<AdminProfileState> states;
+    if (!IsAuthorizedAdmin(session))
+        return states;
+    QueryResult accounts = LoginDatabase.Query("SELECT id FROM account ORDER BY id");
+    if (!accounts)
+        return states;
+    do
+    {
+        std::uint32_t const accountId = accounts->Fetch()[0].Get<std::uint32_t>();
+        if (!IsEligibleHumanAccount(accountId))
+            continue;
+        SocialProfile profile;
+        bool const configured = SocialProfileStore::Instance().FindAccount(accountId, profile)
+            && !profile.displayName.empty();
+        states.push_back({ accountId, configured ? profile.displayName : "", configured });
+    }
+    while (accounts->NextRow());
+    return states;
+}
+
+NameResult SocialService::AdminSetDisplayName(WorldSession const* session,
+    std::uint32_t accountId, std::string const& displayName)
+{
+    if (!IsAuthorizedAdmin(session) || !IsEligibleHumanAccount(accountId))
+        return NameResult::StorageFailure;
+    return SetDisplayName(accountId, displayName);
+}
+
+AdminResult SocialService::AdminCreateAccount(WorldSession* session,
+    std::string const& accountName, std::string password, std::string const& displayName)
+{
+    bool const authorized = IsAuthorizedAdmin(session) &&
+        session->HasPermission(rbac::RBAC_PERM_COMMAND_ACCOUNT_CREATE);
+    return CreateManagedAccount(authorized, accountName, std::move(password), displayName,
+        _displayNameMinLength, _displayNameMaxLength,
+        [](std::string const& name)
+        {
+            return SocialProfileStore::Instance().CheckDisplayNameAvailable(0, name);
+        },
+        [this](std::string const& name, std::string const& secret)
+        {
+            if (!_accountEligibility.IsEligibleUsername(name))
+                return AccountCreateResult{ CoreAccountCreateResult::InvalidInput, 0 };
+            AccountOpResult const coreResult = sAccountMgr->CreateAccount(name, secret);
+            CoreAccountCreateResult result = CoreAccountCreateResult::StorageFailure;
+            switch (coreResult)
+            {
+                case AOR_OK: result = CoreAccountCreateResult::Ok; break;
+                case AOR_NAME_TOO_LONG: result = CoreAccountCreateResult::NameTooLong; break;
+                case AOR_PASS_TOO_LONG: result = CoreAccountCreateResult::PasswordTooLong; break;
+                case AOR_NAME_ALREADY_EXIST: result = CoreAccountCreateResult::NameAlreadyExists; break;
+                case AOR_DB_INTERNAL_ERROR: result = CoreAccountCreateResult::StorageFailure; break;
+                default: result = CoreAccountCreateResult::InvalidInput; break;
+            }
+            std::uint32_t const accountId = result == CoreAccountCreateResult::Ok
+                ? AccountMgr::GetId(name) : 0;
+            if (result == CoreAccountCreateResult::Ok && accountId == 0)
+                result = CoreAccountCreateResult::StorageFailure;
+            return AccountCreateResult{ result, accountId };
+        },
+        [this](std::uint32_t accountId, std::string const& name)
+        {
+            return SocialProfileStore::Instance().SetDisplayName(accountId, name);
+        });
+}
+
+void SocialService::LoadConfiguredAccountExclusions()
+{
+    _excludedAccountIds.clear();
+    QueryResult result = LoginDatabase.Query("SELECT id, username FROM account");
+    if (!result)
+        return;
+    do
+    {
+        Field* fields = result->Fetch();
+        if (!_accountEligibility.IsEligibleUsername(fields[1].Get<std::string>()))
+            _excludedAccountIds.insert(fields[0].Get<std::uint32_t>());
+    }
+    while (result->NextRow());
+}
+
+bool SocialService::IsExcludedAccount(std::uint32_t accountId) const
+{
+    return _excludedAccountIds.count(accountId) != 0 ||
+        SocialPresence::Instance().IsKnownBotAccount(accountId);
 }
 
 std::string SocialService::Diagnostics() const
@@ -237,12 +404,15 @@ std::string SocialService::Diagnostics() const
     text += "  Client package '";
     text += content::Package;
     text += "': ";
-    text += _packageInstalled ? ("installed (v" + _packageVersion + ")") : "not installed (none is required in phase 1)";
+    text += _packageInstalled ? ("registered (v" + _packageVersion + ")") : "not registered";
     text += "\n";
     text += "  Required native content: " + std::to_string(content::RequiredSocialContent().size()) + "\n";
     for (auto const& error : _contentRequirementErrors)
         text += "    error: " + error + "\n";
     text += "  Auth profiles loaded: " + std::to_string(SocialProfileStore::Instance().LoadedCount()) + "\n";
+    text += "  Configured account exclusions: " + std::to_string(_excludedAccountIds.size())
+        + " account(s), " + std::to_string(_accountEligibility.ExplicitExclusionCount())
+        + " explicit name(s)\n";
     text += "  Presence: " + std::to_string(SocialPresence::Instance().ConfirmedCount()) + " confirmed, "
         + std::to_string(SocialPresence::Instance().PendingCount()) + " pending, "
         + std::to_string(SocialPresence::Instance().OnlineAccountCount()) + " online\n";

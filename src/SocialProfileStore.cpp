@@ -22,7 +22,7 @@ bool SocialProfileStore::LoadAll()
     // returns a row (even when table is empty), distinguishing a missing table
     // from a successfully queried empty table.
     QueryResult schemaCheck = LoginDatabase.Query(
-        "SELECT COUNT(*) FROM native_social_account");
+        "SELECT COUNT(*) FROM native_social_account ns INNER JOIN account a ON a.id = ns.account_id");
     if (!schemaCheck)
     {
         // Table does not exist or is not readable
@@ -41,8 +41,8 @@ bool SocialProfileStore::LoadAll()
     }
 
     QueryResult result = LoginDatabase.Query(
-        "SELECT account_id, display_name, appear_offline "
-        "FROM native_social_account");
+        "SELECT ns.account_id, ns.display_name, ns.appear_offline "
+        "FROM native_social_account ns INNER JOIN account a ON a.id = ns.account_id");
     if (!result)
         return false;
 
@@ -64,6 +64,15 @@ void SocialProfileStore::Clear()
 {
     _profiles.clear();
     _nameKeys.clear();
+}
+
+std::vector<SocialProfile> SocialProfileStore::AllProfiles() const
+{
+    std::vector<SocialProfile> out;
+    out.reserve(_profiles.size());
+    for (auto const& entry : _profiles)
+        out.push_back(entry.second);
+    return out;
 }
 
 bool SocialProfileStore::FindAccount(std::uint32_t accountId, SocialProfile& out) const
@@ -89,30 +98,15 @@ NameResult SocialProfileStore::SetDisplayName(std::uint32_t accountId, std::stri
     if (key.empty())
         return NameResult::InvalidCharacter;
 
-    // Fast path against the local index. The database is the authority for
-    // uniqueness (see below); this only avoids a statement when the answer is
-    // already known locally.
-    auto const existing = _nameKeys.find(key);
-    if (existing != _nameKeys.end() && existing->second != accountId)
-        return NameResult::AlreadyTaken;
+    NameResult const available = CheckDisplayNameAvailable(accountId, displayName);
+    if (available != NameResult::Ok)
+        return available;
 
     std::string const selfStr = std::to_string(accountId);
     std::string escName = displayName;
     std::string escKey = key;
     LoginDatabase.EscapeString(escName);
     LoginDatabase.EscapeString(escKey);
-
-    // Authoritative pre-check against the shared auth database. A display-name
-    // key can be held by an account that only exists in another realm sharing
-    // this auth DB, so it is invisible to the local index; the unique column
-    // is what actually enforces the name. This catches that case before we
-    // attempt the write.
-    if (LoginDatabase.Query(
-            "SELECT account_id FROM native_social_account "
-            "WHERE display_name_key = '" + escKey + "' AND account_id <> " + selfStr))
-    {
-        return NameResult::AlreadyTaken;
-    }
 
     if (_profiles.count(accountId) > 0)
     {
@@ -133,9 +127,7 @@ NameResult SocialProfileStore::SetDisplayName(std::uint32_t accountId, std::stri
 
     // Post-write verification. We never trust Execute() in isolation: the
     // SELECT below reflects what the database actually committed. Races
-    // between realms that share an auth DB resolve deterministically here —
-    // exactly one writer ends up owning the key, and everyone else reports
-    // AlreadyTaken — because the unique constraint is enforced by the server.
+    // between realms that share an auth DB resolve deterministically here.
     QueryResult check = LoginDatabase.Query(
         "SELECT account_id, display_name_key FROM native_social_account "
         "WHERE account_id = " + selfStr + " OR display_name_key = '" + escKey + "'");
@@ -157,9 +149,7 @@ NameResult SocialProfileStore::SetDisplayName(std::uint32_t accountId, std::stri
                 ownKey = true;
         }
         else if (candidateKey == key)
-        {
             conflictKey = true;
-        }
     }
     while (check->NextRow());
 
@@ -168,22 +158,44 @@ NameResult SocialProfileStore::SetDisplayName(std::uint32_t accountId, std::stri
     if (!ownRow || !ownKey)
         return NameResult::StorageFailure;
 
-    // The write is verified committed; only now reflect it in the in-memory
-    // state. First registration has no loaded profile, so build the profile
-    // from scratch (appear-offline defaults to off). An existing profile keeps
-    // its privacy setting through a rename.
     SocialProfile updated;
     if (FindAccount(accountId, updated))
-    {
         updated.displayName = displayName;
-    }
     else
-    {
-        updated.accountId = accountId;
-        updated.displayName = displayName;
-        updated.appearOffline = false;
-    }
+        updated = { accountId, displayName, false };
     Apply(accountId, updated);
+    return NameResult::Ok;
+}
+
+NameResult SocialProfileStore::CheckDisplayNameAvailable(
+    std::uint32_t accountId, std::string const& displayName) const
+{
+    std::string const key = DisplayNameKey(displayName);
+    if (key.empty())
+        return NameResult::InvalidCharacter;
+
+    // Fast path against the local index. The database is the authority for
+    // uniqueness (see below); this only avoids a statement when the answer is
+    // already known locally.
+    auto const existing = _nameKeys.find(key);
+    if (existing != _nameKeys.end() && existing->second != accountId)
+        return NameResult::AlreadyTaken;
+
+    std::string const selfStr = std::to_string(accountId);
+    std::string escKey = key;
+    LoginDatabase.EscapeString(escKey);
+
+    // Authoritative pre-check against the shared auth database. A display-name
+    // key can be held by an account that only exists in another realm sharing
+    // this auth DB, so it is invisible to the local index; the unique column
+    // is what actually enforces the name. This catches that case before we
+    // attempt the write.
+    if (LoginDatabase.Query(
+            "SELECT account_id FROM native_social_account "
+            "WHERE display_name_key = '" + escKey + "' AND account_id <> " + selfStr))
+    {
+        return NameResult::AlreadyTaken;
+    }
     return NameResult::Ok;
 }
 

@@ -17,3 +17,16 @@ NativeSocial.DisplayNameMinLength = 3
 # Names longer than 48 characters are refused regardless of this setting.
 #    Default: 24
 NativeSocial.DisplayNameMaxLength = 24
+
+# Prefix used by mod-playerbots for generated random-bot authentication
+# accounts. Matching is performed in the auth database, so offline bots are
+# excluded without a runtime dependency on Playerbots. Set empty only when the
+# realm does not use prefixed Playerbot accounts.
+NativeSocial.PlayerbotAccountPrefix = "rndbot"
+
+# Comma-separated authentication usernames that are never eligible for Native
+# Social. Matching is case-insensitive; surrounding whitespace and empty list
+# entries are ignored. This filtering is server-side and usernames are never
+# exposed through the public Players directory.
+#    Default: "AHBOT"
+NativeSocial.ExcludedAccounts = "AHBOT"

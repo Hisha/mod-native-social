@@ -1,92 +1,29 @@
-# Native UI plan: the 3.3.5a social window
+# Native Players UI
 
-Status: investigation complete (this file); the **real transport package now
-ships** byte-exact at `content/mod-native-social.epf` (Checkpoint 1B), built
-from `content/sources/`. The package is deliberately **transport-only**: it
-declares **no vendor capability**, so the Content Manager seam that activates
-server-declared content stays empty. That seam and the gap it records are
-documented in `content/README.md`.
+The native UI is implemented in the schema-3 EPF, not as a user addon. It
+shadows the stock build-12340 `FriendsFrame.lua` and `FriendsFrame.xml`, loads
+the module-owned `NativeSocial.lua`, and adds a sixth **Players** tab while
+preserving the existing Friends, Who, Guild, Chat, and Raid behavior.
 
-## Investigation summary
+The Players tab requests `DIR_LIST`, validates and reassembles entry parts, and
+renders WotLK-style rows:
 
-The 3.3.5a social window has no separate `SocialFrame`. The window opened by
-the Social button / `ToggleFriendsFrame()` is **`FriendsFrame`**, living in
-`Interface/FrameXML/FriendsFrame.xml` and `FriendsFrame.lua`. Both files were
-extracted from a European 3.3.5a client:
+- online marker and public Display Name;
+- character, level, localized race and class;
+- faction and localized zone/instance;
+- or an offline marker and `Offline` with no hidden character data.
 
-- Source MPQ: `Data/enUS/patch-enUS-3.MPQ` (contains the runtime-effective resources).
-- Reference files: `patch-enUS-2.MPQ` also contains these files, but `patch-enUS-3.MPQ`
-  is the authoritative source for 3.3.5a.
-- Extracted copies (reference only): `FriendsFrame.xml` (~4448 lines),
-  `FriendsFrame.lua` (~1517 lines).
+The server supplies the final ordering. The client does not infer identity,
+authorization, privacy, or bot state. A refresh button starts a new request;
+stale request IDs and malformed frames are ignored or converted into a safe
+panel error.
 
-### Tab anatomy (FriendsFrame.xml, lines ~4331-4436)
+The protected files require the semantic `protected-framexml` client
+capability declared by the EPF. The module contains no executable hashes,
+offsets, patch recipes, or binary-generation logic. Portalkeeper owns how the
+realm supplies that capability.
 
-Tabs inherit the `FriendsFrameTabTemplate` (which inherits
-`CharacterFrameTabButtonTemplate`) and are anchored in a LEFT chain:
-
-| Tag | tab id | Text | Notes |
-| --- | --- | --- | --- |
-| `FriendsFrameTab1` | 1 | FRIENDS | anchored `BOTTOMLEFT` of FriendsFrame (x=11, y=46) |
-| *(commented out)* | 2 | IGNORE | a blizzard-disabled IGNORE tab kept in comments between tab 1 and WHO |
-| `FriendsFrameTab2` | 2 | WHO | reuses the name `FriendsFrameTab2`; anchors to tab1 |
-| `FriendsFrameTab3` | 3 | GUILD | `OnClick` guards with `InGuildCheck()` |
-| `FriendsFrameTab4` | 4 | CHAT | channels |
-| `FriendsFrameTab5` | 5 | RAID | |
-
-Consequences for a native tab:
-
-- Tab ids and button names are **hard-coded** in the Lua (`tab == 1`,
-  `tab == 3`, `PanelTemplates_GetSelectedTab`), not data-driven. Adding a tab
-  means touching `FriendsFrame_Update()`, `ToggleFriendsFrame()`, the
-  per-tab panels and the XML anchors, not just appending one button.
-- The commented-out IGNORE block is the obvious seam: a new tab button can be
-  inserted there and re-shaded with the same anchors, avoiding the need to
-  re-anchor every later tab.
-
-### Relevant Lua control flow
-
-- `ToggleFriendsFrame(tab)` — toggles/hides, calls `PanelTemplates_SetTab`.
-- `PanelTemplates_SetTab(FriendsFrame, tab)` — highlights the selected tab;
-  the XML `OnClick` for each tab runs `PanelTemplates_Tab_OnClick(self,
-  FriendsFrame)` then `FriendsFrame_Update()` (GUILD) or a registered update
-  handler.
-- `FriendsFrame_Update()` — drives which panel scroll frame is shown for the
-  selected tab and refreshes friend/ignore/chat/raid lists.
-- `FriendsFrame_OnLoad`/`OnShow`/`OnEvent` — hook tab bookkeeping, query
-  friend status, and gate availability (e.g. guild tab hidden when
-  `not IsInGuild()`).
-- Selected-tab pattern: `PanelTemplates_GetSelectedTab(FriendsFrame)`.
-
-## Approach for the Phase 2 "Players" tab
-
-The package will shadow `Interface/FrameXML/FriendsFrame.lua` and
-`FriendsFrame.xml` inside the Content Manager client patch (schema 1 raw
-files), with the built patch archiving over the base MPQ files.
-
-1. **XML**: add a `FriendsFrameTab2b`-style button (or renumber cleanly)
-   labelled PLAYERS, inserted at the commented-IGNORE seam; add a
-   `FriendsFramePlayersPanel` (scroll frame + input/editbox + buttons)
-   anchored like the existing panel templates; wire `OnClick` to a
-   `FriendsFramePlayers_*` update path.
-2. **Lua**: open a per-account profile at login, seed it from the server
-   (display name, appearing online/offline), load the online/offline lists,
-   and drive messaging.
-3. **Strings**: avoid shadowing `GlobalStrings.lua` (full-copy risk); use
-   inline localized literals or a small module-owned string table committed
-   in the patch.
-4. **Protocol**: the native client talks to the worldserver using the existing
-    3.3.5a addon-message transport (CHAT_MSG_ADDON with LANG_ADDON). The NSOC
-    protocol (see `docs/NSOC_PROTOCOL.md`) defines the wire format for bidirectional
-    communication. The server surface already exposed by this module
-    (`SocialService`) is designed so the protocol layer can call it directly.
-    
-    The Phase 2 client will send NSOC requests via `SendAddonMessage()` and receive
-    responses through the CHAT_MSG_ADDON event. The first operation is LIST,
-    which returns the Native Social player/presence list for the Players tab.
-
-Phase 1 shipped no client content by design (no fake package). Checkpoint 1B
-now ships the real package (`content/mod-native-social.epf`, byte-exact against
-`content/sources/`): a second "Players" tab in the 3.3.5a `FriendsFrame` plus
-the `NativeSocial.lua` NSOC `LIST` transport the tab talks over. See
-`content/README.md` for the package identity and realm activation procedure.
+Graphical account administration is deliberately deferred. The authorized
+NSOC create/list/set-name server operations and GM recovery commands are in
+place first; a later management frame can consume them without changing the
+account identity or security boundary.

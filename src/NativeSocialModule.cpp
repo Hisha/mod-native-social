@@ -22,6 +22,8 @@ enum class NativeSocialConfig
     Enabled,
     DisplayNameMinLength,
     DisplayNameMaxLength,
+    PlayerbotAccountPrefix,
+    ExcludedAccounts,
     Count
 };
 
@@ -34,6 +36,8 @@ public:
         SetConfigValue<bool>(NativeSocialConfig::Enabled, "NativeSocial.Enable", true);
         SetConfigValue<std::uint32_t>(NativeSocialConfig::DisplayNameMinLength, "NativeSocial.DisplayNameMinLength", 3);
         SetConfigValue<std::uint32_t>(NativeSocialConfig::DisplayNameMaxLength, "NativeSocial.DisplayNameMaxLength", 24);
+        SetConfigValue<std::string>(NativeSocialConfig::PlayerbotAccountPrefix, "NativeSocial.PlayerbotAccountPrefix", "rndbot");
+        SetConfigValue<std::string>(NativeSocialConfig::ExcludedAccounts, "NativeSocial.ExcludedAccounts", "AHBOT");
     }
 };
 
@@ -87,7 +91,9 @@ public:
         std::uint32_t const maxLength = std::min<std::uint32_t>(48,
             std::max<std::uint32_t>(minLength,
                 socialConfig.GetConfigValue<std::uint32_t>(NativeSocialConfig::DisplayNameMaxLength)));
-        GetService()->Configure(enabled, minLength, maxLength, reload);
+        GetService()->Configure(enabled, minLength, maxLength,
+            socialConfig.GetConfigValue<std::string>(NativeSocialConfig::PlayerbotAccountPrefix),
+            socialConfig.GetConfigValue<std::string>(NativeSocialConfig::ExcludedAccounts), reload);
 
         if (!enabled)
         {
@@ -148,7 +154,12 @@ public:
 
     ChatCommandTable GetCommands() const override
     {
+        static ChatCommandTable adminTable = {
+            { "list", HandleAdminList, SEC_ADMINISTRATOR, Console::No },
+            { "name", HandleAdminName, SEC_ADMINISTRATOR, Console::No }
+        };
         static ChatCommandTable socialTable = {
+            { "admin", adminTable },
             { "name", HandleName, rbac::RBAC_PERM_COMMAND_SERVER_INFO, Console::No },
             { "online", HandleOnline, rbac::RBAC_PERM_COMMAND_SERVER_INFO, Console::No },
             { "offline", HandleOffline, rbac::RBAC_PERM_COMMAND_SERVER_INFO, Console::No },
@@ -165,6 +176,35 @@ private:
     {
         Player* const player = GetCommandPlayer(handler);
         return player && player->GetSession() ? player->GetSession()->GetAccountId() : 0;
+    }
+
+    static bool HandleAdminList(ChatHandler* handler)
+    {
+        if (!ModuleUsable(handler) || !handler || !handler->GetSession())
+            return true;
+        auto const states = GetService()->ListAdminProfiles(handler->GetSession());
+        SendSocial(handler, "eligible human accounts: " + std::to_string(states.size()));
+        for (auto const& state : states)
+            SendSocial(handler, "  account " + std::to_string(state.accountId) + ": " +
+                (state.configured ? state.displayName : "display name not configured"));
+        return true;
+    }
+
+    static bool HandleAdminName(ChatHandler* handler, std::uint32_t accountId, Tail displayName)
+    {
+        if (!ModuleUsable(handler) || !handler || !handler->GetSession())
+            return true;
+        if (displayName.empty())
+        {
+            SendSocial(handler, "usage: .social admin name <account id> <display name>");
+            return true;
+        }
+        nativesocial::NameResult const result = GetService()->AdminSetDisplayName(
+            handler->GetSession(), accountId, std::string(displayName));
+        SendSocial(handler, result == nativesocial::NameResult::Ok
+            ? "display name assigned to account " + std::to_string(accountId) + "."
+            : "display name " + nativesocial::NameResultToString(result) + ".");
+        return true;
     }
 
     static bool HandleName(ChatHandler* handler, Optional<std::string> name)

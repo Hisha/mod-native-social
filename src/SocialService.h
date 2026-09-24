@@ -4,13 +4,18 @@
 #include "SocialPresence.h"
 #include "SocialProfile.h"
 #include "SocialProfileStore.h"
+#include "SocialAdmin.h"
+#include "SocialAccountEligibility.h"
+#include "SocialDirectory.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class Player;
+class WorldSession;
 
 namespace ContentCapabilitiesV1
 {
@@ -23,8 +28,9 @@ namespace content
 {
 // Package identity of the native client content this module produces (matches
 // the EPF manifest "package" field and content_manager_package.world rows).
-// Phase 1 ships no client UI, so nothing is required yet; Phase 2+ fills the
-// required set below and the availability gate then makes it mandatory.
+// The schema-3 EPF declares its protected-framexml client requirement. The
+// older capability-provider ABI below validates semantic vendor declarations,
+// not build-level client requirements, so that set remains separate.
 inline constexpr char const* Package = "mod-native-social";
 
 // One declared piece of native client content the module needs to operate
@@ -46,15 +52,13 @@ struct RequiredContent
     std::string note;         // why it is required / what it ships
 };
 
-// The set of required client content for the current feature set. Empty in
-// Phase 1. The intended progression is: when real client functionality lands
-// in Phase 2+, add its package here and the existing verification becomes a
-// hard requirement (no configuration toggle weakens it).
+// Vendor-backed server content requirements, if any. The Players UI is raw
+// FrameXML and therefore intentionally is not represented as a fake vendor.
 std::vector<RequiredContent> const& RequiredSocialContent();
 }
 
-// Facade for the phase-1 server facilities. The command layer and future
-// native client protocol consume this surface only; storage, presence and
+// Facade for the server facilities. Commands and the native client protocol
+// consume this surface only; storage, presence and
 // content-manager validation stay behind it.
 class SocialService
 {
@@ -66,7 +70,9 @@ public:
 
     static SocialService& Instance();
 
-    void Configure(bool enabled, std::uint32_t displayNameMinLength, std::uint32_t displayNameMaxLength, bool reload);
+    void Configure(bool enabled, std::uint32_t displayNameMinLength,
+        std::uint32_t displayNameMaxLength, std::string playerbotAccountPrefix,
+        std::string excludedAccounts, bool reload);
 
     // Startup hook (OnStartup). Probes the Content Manager integration,
     // verifies required client content and loads auth profiles. Returns
@@ -85,8 +91,8 @@ public:
 
     bool ContentManagerPresent() const { return _contentManagerPresent; }
     std::string const& ContentManagerOperationState() const { return _contentManagerOperationState; }
-    // Installed state of the module's client package, if any; diagnostic
-    // only in Phase 1 (where no package is required yet).
+    // Registered package state (diagnostic only; activation/capability is
+    // enforced by the schema-3 build/publication/launcher chain).
     bool PackageInstalled() const { return _packageInstalled; }
     std::string PackageVersion() const { return _packageInstalled ? _packageVersion : ""; }
     std::vector<std::string> const& ContentRequirementErrors() const { return _contentRequirementErrors; }
@@ -108,6 +114,25 @@ public:
     bool IsAccountAdvertisedOnline(std::uint32_t accountId, SocialProfile const& profile) const;
     std::vector<SocialProfile> ListAdvertisedOnline() const;
 
+    // Public account directory. Only configured profiles are returned; login
+    // usernames never enter this model. Presence is localized for the viewer.
+    std::vector<DirectoryEntry> BuildPublicDirectory(WorldSession const* viewer);
+
+    struct AdminProfileState
+    {
+        std::uint32_t accountId = 0;
+        std::string displayName;
+        bool configured = false;
+    };
+
+    bool IsAuthorizedAdmin(WorldSession const* session) const;
+    std::vector<AdminProfileState> ListAdminProfiles(WorldSession const* session) const;
+    NameResult AdminSetDisplayName(WorldSession const* session, std::uint32_t accountId,
+        std::string const& displayName);
+    AdminResult AdminCreateAccount(WorldSession* session, std::string const& accountName,
+        std::string password, std::string const& displayName);
+    bool IsEligibleHumanAccount(std::uint32_t accountId) const;
+
     std::string Diagnostics() const;
 
 private:
@@ -121,6 +146,9 @@ private:
     // Content Manager capability provider (ACTIVE/APPLIED resolution for the
     // current realm) and fills _contentRequirementErrors on failure.
     bool ResolveRequiredContent();
+    void LoadConfiguredAccountExclusions();
+    bool IsExcludedAccount(std::uint32_t accountId) const;
+    std::string PresenceLocation(Player const* player, WorldSession const* viewer) const;
 
     bool _enabled = false;
     bool _available = false;
@@ -135,6 +163,8 @@ private:
 
     std::uint32_t _displayNameMinLength = 3;
     std::uint32_t _displayNameMaxLength = 24;
+    SocialAccountEligibility _accountEligibility;
+    std::unordered_set<std::uint32_t> _excludedAccountIds;
     std::uint32_t _updateTimer = 0;
 };
 

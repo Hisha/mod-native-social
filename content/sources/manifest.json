@@ -1,9 +1,12 @@
 {
-  "schema": 1,
+  "schema": 3,
   "package": "mod-native-social",
   "name": "Native Social",
-  "version": "1.0.3",
-  "description": "Phase 2A diagnostic: FriendsFrame.lua-only bisect. 1.0.3 starts from the proven-good 1.0.2 control and modifies ONLY Interface/FrameXML/FriendsFrame.lua with the corrected 1.0.1 Players-tab integration points applied cleanly to the pristine patch-enUS-3 MPQ baseline. FriendsFrame.xml remains byte-for-byte pristine. No NativeSocial.lua, no XML changes, no NSOC transport, no functional Players tab (intentional). Question: does WoW boot with the FriendsFrame.lua modifications?",
+  "version": "2.0.0",
+  "description": "Account-level Players directory for the protected WoW 3.3.5a Social Frame.",
+  "clientRequirements": [
+    "protected-framexml"
+  ],
   "content": [
     {
       "type": "file",
@@ -14,6 +17,11 @@
       "type": "file",
       "source": "assets/Interface/FrameXML/FriendsFrame.xml",
       "target": "Interface/FrameXML/FriendsFrame.xml"
+    },
+    {
+      "type": "file",
+      "source": "assets/Interface/FrameXML/NativeSocial.lua",
+      "target": "Interface/FrameXML/NativeSocial.lua"
     }
   ]
 }

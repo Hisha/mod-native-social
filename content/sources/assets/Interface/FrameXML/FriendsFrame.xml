@@ -1,6 +1,7 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
 ..\FrameXML\UI.xsd">
 	<Script file="FriendsFrame.lua"/>
+	<Script file="NativeSocial.lua"/>
 
 	<Frame name="FriendsFrameHeaderTemplate" virtual="true" enableMouse="true">
 		<Size>
@@ -4832,6 +4833,69 @@
 					<OnLeave function="GameTooltip_Hide"/>
 				</Scripts>
 			</Button>
+			<Button name="FriendsFrameTab6" inherits="FriendsFrameTabTemplate" id="6" text="Players">
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="FriendsFrameTab5" relativePoint="RIGHT">
+						<Offset><AbsDimension x="-15" y="0"/></Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnLoad function="FriendsFrame_Update"/>
+					<OnEvent function="FriendsFrame_Update"/>
+					<OnEnter>
+						GameTooltip_AddNewbieTip(self, "Players", 1.0, 1.0, 1.0, "Native Social account directory.", 1);
+					</OnEnter>
+					<OnLeave function="GameTooltip_Hide"/>
+				</Scripts>
+			</Button>
+			<Button name="NativeSocialPlayersButtonTemplate" virtual="true">
+				<Size><AbsDimension x="292" y="58"/></Size>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentName" inherits="GameFontNormal" justifyH="LEFT">
+							<Anchors><Anchor point="TOPLEFT" x="8" y="-2"/></Anchors>
+						</FontString>
+						<FontString name="$parentCharacter" inherits="GameFontHighlightSmall" justifyH="LEFT">
+							<Anchors><Anchor point="TOPLEFT" relativeTo="$parentName" relativePoint="BOTTOMLEFT" x="12" y="-2"/></Anchors>
+						</FontString>
+						<FontString name="$parentFaction" inherits="GameFontHighlightSmall" justifyH="LEFT">
+							<Anchors><Anchor point="TOPLEFT" relativeTo="$parentCharacter" relativePoint="BOTTOMLEFT" x="0" y="-1"/></Anchors>
+						</FontString>
+						<FontString name="$parentLocation" inherits="GameFontDisableSmall" justifyH="LEFT">
+							<Anchors><Anchor point="TOPLEFT" relativeTo="$parentFaction" relativePoint="BOTTOMLEFT" x="0" y="-1"/></Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+			</Button>
+			<Frame name="NativeSocialPlayersPanel" hidden="true" setAllPoints="true">
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentStatus" inherits="GameFontNormal" justifyH="CENTER">
+							<Size><AbsDimension x="280" y="40"/></Size>
+							<Anchors><Anchor point="CENTER" x="0" y="20"/></Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<Frames>
+					<ScrollFrame name="NativeSocialPlayersScrollFrame" inherits="DynamicScrollFrameTemplate">
+						<Size><AbsDimension x="310" y="322"/></Size>
+						<Anchors><Anchor point="TOPLEFT" x="14" y="-72"/></Anchors>
+						<Frames>
+							<Slider name="$parentScrollBar" inherits="UIPanelScrollBarTemplate">
+								<Anchors>
+									<Anchor point="TOPRIGHT" x="-3" y="-16"/>
+									<Anchor point="BOTTOMRIGHT" x="-3" y="16"/>
+								</Anchors>
+							</Slider>
+						</Frames>
+					</ScrollFrame>
+					<Button name="$parentRefresh" inherits="UIPanelButtonTemplate2" text="Refresh">
+						<Size><AbsDimension x="96" y="22"/></Size>
+						<Anchors><Anchor point="BOTTOMRIGHT" x="-26" y="54"/></Anchors>
+						<Scripts><OnClick function="NativeSocialPlayers_Refresh"/></Scripts>
+					</Button>
+				</Frames>
+			</Frame>
 			<Frame name="FriendsTooltip" frameStrata="TOOLTIP" hidden="true" clampedToScreen="true">
 				<Size>
 					<AbsDimension x="200" y="200"/>

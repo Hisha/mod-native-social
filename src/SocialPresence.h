@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 
 class Player;
 
@@ -42,6 +43,22 @@ public:
     std::size_t ConfirmedCount() const { return _confirmed.size(); }
     std::size_t PendingCount() const { return _pending.size(); }
 
+    // Runtime Playerbot accounting: accounts observed holding at least one
+    // Playerbot session during this process, from the confirmed/pending
+    // classification or the purge of a previously-confirmed session. The
+    // directory voter is "the account is a known bot account, exclude it" —
+    // none of these accounts are ever offered to humans, even when an operator
+    // configured a display-name profile for them.
+    bool IsKnownBotAccount(std::uint32_t accountId) const;
+    std::unordered_set<std::uint32_t> const& BotAccounts() const;
+    std::size_t KnownBotAccountCount() const { return _botAccounts.size(); }
+
+    // The confirmed online character for an account with the lowest GUID — a
+    // deterministic single-character pick for directory presence when several
+    // human sessions share an account. Null when the account has no confirmed,
+    // currently-online human session.
+    Player* ActiveCharacterForAccount(std::uint32_t accountId) const;
+
     // Invokes fn(accountId) for every account holding at least one confirmed
     // human session. Return false from fn to stop iterating.
     template <typename Fn>
@@ -61,6 +78,8 @@ private:
     std::unordered_map<ObjectGuid, std::uint32_t> _confirmed;
     // account -> number of confirmed human sessions.
     std::unordered_map<std::uint32_t, std::uint32_t> _sessionsPerAccount;
+    // Account ids observed holding a Playerbot session this process.
+    std::unordered_set<std::uint32_t> _botAccounts;
 };
 }
 
