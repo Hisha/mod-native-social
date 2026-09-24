@@ -4891,7 +4891,7 @@
 					</ScrollFrame>
 					<Button name="$parentRefresh" inherits="UIPanelButtonTemplate2" text="Refresh">
 						<Size><AbsDimension x="96" y="22"/></Size>
-						<Anchors><Anchor point="TOPRIGHT" x="-26" y="-38"/></Anchors>
+						<Anchors><Anchor point="TOPRIGHT" x="-45" y="-38"/></Anchors>
 						<Scripts><OnClick function="NativeSocialPlayers_Refresh"/></Scripts>
 					</Button>
 				</Frames>
