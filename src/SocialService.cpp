@@ -279,8 +279,8 @@ std::vector<DirectoryEntry> SocialService::BuildPublicDirectory(WorldSession con
         presence.online = true;
         presence.characterName = player->GetName();
         presence.level = player->GetLevel();
-        presence.race = player->GetRace();
-        presence.charClass = player->GetClass();
+        presence.race = player->getRace();
+        presence.charClass = player->getClass();
         presence.faction = player->GetTeamId() == TEAM_HORDE ? 'H' : 'A';
         presence.zone = PresenceLocation(player, viewer);
         live.emplace(profile.accountId, std::move(presence));
