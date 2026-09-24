@@ -186,10 +186,14 @@ end
 
 local function NativeSocialPlayers_EnsureCreated()
 	if playersFrameCreated then return; end
-	playersFrameCreated = true;
+
+	NativeSocialPlayersScrollFrame.scrollBar = NativeSocialPlayersScrollFrameScrollBar;
+
 	DynamicScrollFrame_CreateButtons(NativeSocialPlayersScrollFrame,
 		"NativeSocialPlayersButtonTemplate", NSOC_PLAYERS_BUTTON_HEIGHT,
 		NativeSocialPlayers_SetButton, NativeSocialPlayers_GetScrollTop);
+
+	playersFrameCreated = true;
 end
 
 function NativeSocialPlayers_Render()
