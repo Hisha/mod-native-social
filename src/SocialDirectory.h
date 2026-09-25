@@ -46,8 +46,8 @@ using DirectoryPresenceMap = std::unordered_map<std::uint32_t, PresenceInfo>;
 // Compiles the player directory for one request.
 //   profiles    - every native_social_account row (accounts that adopted a
 //                 display name); entries appear exactly once in this order
-//   botAccounts - account ids that currently hold Playerbot sessions; these
-//                 are ALWAYS excluded from the directory
+//   excludedAccounts - account ids excluded by configured/runtime bot policy
+//                      plus the authenticated viewer's own account id
 //   presence    - live presence keyed by account id
 // Privacy is enforced here so it is testable: an appear-offline account is
 // always represented as an offline entry even when presence exists for it
@@ -55,7 +55,7 @@ using DirectoryPresenceMap = std::unordered_map<std::uint32_t, PresenceInfo>;
 // Ordering is deterministic: online entries first, then alphabetical by
 // display-name key within each group; ties resolve by account id.
 std::vector<DirectoryEntry> BuildDirectory(std::vector<SocialProfile> const& profiles,
-    std::unordered_set<std::uint32_t> const& botAccounts,
+    std::unordered_set<std::uint32_t> const& excludedAccounts,
     DirectoryPresenceMap const& presence);
 
 // Wire identity/presence fields for a single entry (docs/NSOC_PROTOCOL.md):

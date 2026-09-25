@@ -27,6 +27,22 @@ own_save = service[service.index("NameResult SocialService::SaveOwnProfile"):ser
 assert "session->GetAccountId()" in own_save
 assert "IsEligibleHumanAccount(accountId)" in own_save
 
+# Public directory filtering derives the viewer from the authenticated session
+# and does not alter the separately authorized Admin list.
+public_directory = service[service.index("std::vector<DirectoryEntry> SocialService::BuildPublicDirectory"):
+                           service.index("bool SocialService::IsAuthorizedAdmin")]
+assert "viewer->GetAccountId()" in public_directory
+assert "excludedAccounts.insert(viewer->GetAccountId())" in public_directory
+admin_list = service[service.index("ListAdminProfiles"):service.index("NameResult SocialService::AdminSetDisplayName")]
+assert "viewer" not in admin_list
+
+# ADMIN_SET_NAME keeps both its handler and service authorization gates, and
+# accepts exactly request id + account id + display name after the command.
+admin_set = handler[handler.index("cmd == command::AdminSetName"):handler.index("cmd == command::AdminCreate")]
+assert "fields.size() == 6" in admin_set
+assert "IsAuthorizedAdmin(session)" in admin_set
+assert "AdminSetDisplayName(" in admin_set
+
 # The native UI deliberately exposes no credential or graphical account-create
 # request. Existing server compatibility remains separate pending review.
 assert "ADMIN_CREATE_ACCOUNT" not in client

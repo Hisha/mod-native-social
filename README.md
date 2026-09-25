@@ -50,7 +50,12 @@ The native Players panel also provides **My Profile** controls for changing the
 authenticated account's Display Name and Appear Offline flag. The request never
 contains a client-selected account ID. Successful changes synchronously update
 the auth database and the running worldserver's profile store, then refresh the
-directory.
+directory. Unsaved profile edits are preserved when navigating away and back.
+
+The public directory omits the authenticated viewer's own account ID, so every
+character on an account sees other eligible profiles but never its own. This
+does not affect the administrator account list, which continues to include the
+administrator's account.
 
 ## Human-account filtering
 

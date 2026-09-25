@@ -25,10 +25,18 @@ account IDs, including unconfigured profiles, and can assign a Display Name.
 The button is hidden for ordinary players, while every operation independently
 rechecks authorization on the server.
 
+Top navigation is page-specific: Directory shows My Profile, optional Admin,
+and Refresh; My Profile shows Directory and optional Admin; Admin shows
+Directory and My Profile. Buttons are packed left-to-right at runtime so an
+unauthorized player never gets an empty Admin gap. Refresh remains a
+directory-only action. My Profile drafts are retained across navigation until
+saved or replaced by a successful server response.
+
 The server supplies the final ordering. The client does not infer identity,
 authorization, privacy, or bot state. A refresh button starts a new request;
 stale request IDs and malformed frames are ignored or converted into a safe
-panel error.
+panel error. The server removes the authenticated viewer's account ID before
+directory framing, while the administrator list remains unfiltered by viewer.
 
 The protected files require the semantic `protected-framexml` client
 capability declared by the EPF. The module contains no executable hashes,

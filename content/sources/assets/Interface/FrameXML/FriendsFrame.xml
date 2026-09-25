@@ -4894,12 +4894,12 @@
 					</Layer>
 				</Layers>
 				<Frames>
-					<Button name="$parentDirectoryButton" inherits="UIPanelButtonTemplate2" text="Directory">
+					<Button name="$parentDirectoryButton" inherits="UIPanelButtonTemplate2" text="Directory" hidden="true">
 						<Size><AbsDimension x="76" y="22"/></Size>
 						<Anchors><Anchor point="TOPLEFT" x="14" y="-38"/></Anchors>
 						<Scripts><OnClick function="NativeSocialPlayers_ShowDirectory"/></Scripts>
 					</Button>
-					<Button name="$parentProfileButton" inherits="UIPanelButtonTemplate2" text="My Profile">
+					<Button name="$parentProfileButton" inherits="UIPanelButtonTemplate2" text="My Profile" hidden="true">
 						<Size><AbsDimension x="82" y="22"/></Size>
 						<Anchors><Anchor point="LEFT" relativeTo="$parentDirectoryButton" relativePoint="RIGHT" x="4" y="0"/></Anchors>
 						<Scripts><OnClick function="NativeSocialPlayers_ShowProfile"/></Scripts>
@@ -4921,7 +4921,7 @@
 							</Slider>
 						</Frames>
 					</ScrollFrame>
-					<Button name="$parentRefresh" inherits="UIPanelButtonTemplate2" text="Refresh">
+					<Button name="$parentRefresh" inherits="UIPanelButtonTemplate2" text="Refresh" hidden="true">
 						<Size><AbsDimension x="76" y="22"/></Size>
 						<Anchors><Anchor point="TOPRIGHT" x="-45" y="-38"/></Anchors>
 						<Scripts><OnClick function="NativeSocialPlayers_Refresh"/></Scripts>

@@ -48,7 +48,9 @@ Entries are online first, then offline, with case-insensitive display-name
 ordering and account ID as the final tie breaker. Only configured human
 profiles appear. Accounts rejected by the centralized server-side eligibility
 policy (the Playerbot prefix or `NativeSocial.ExcludedAccounts`) never appear.
-Authentication usernames never occur in this response.
+The authenticated viewer's account ID is also excluded server-side before the
+entry count and chunked responses are generated. Authentication usernames
+never occur in this response.
 
 The earlier `LIST` / `LIST_START` / `LIST_PROFILE` / `LIST_END` exchange is
 retained as a compatibility surface and still returns visible online display
@@ -113,6 +115,13 @@ The native management frame currently exposes `ADMIN_LIST` and
 or any password field. The pre-existing `ADMIN_CREATE_ACCOUNT` compatibility
 operation remains server-authorized, but adding it to the UI requires a
 separate credential-transport review and approval.
+
+`ADMIN_SET_NAME` contains exactly the request ID, target account ID, and
+escaped Display Name after the command. The server parses the numeric account
+ID, repeats administrator authorization and human-account eligibility checks,
+then uses the shared profile store so persistence and live memory update
+together. Success triggers both an Admin-list reload and a public-directory
+refresh.
 
 Errors use:
 

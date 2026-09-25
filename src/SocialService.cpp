@@ -308,6 +308,8 @@ std::vector<DirectoryEntry> SocialService::BuildPublicDirectory(WorldSession con
 
     std::vector<SocialProfile> const profiles = SocialProfileStore::Instance().AllProfiles();
     std::unordered_set<std::uint32_t> excludedAccounts;
+    if (viewer)
+        excludedAccounts.insert(viewer->GetAccountId());
     for (SocialProfile const& profile : profiles)
         if (IsExcludedAccount(profile.accountId))
             excludedAccounts.insert(profile.accountId);

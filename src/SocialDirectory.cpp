@@ -36,7 +36,7 @@ struct SortKey
 } // namespace
 
 std::vector<DirectoryEntry> BuildDirectory(std::vector<SocialProfile> const& profiles,
-    std::unordered_set<std::uint32_t> const& botAccounts,
+    std::unordered_set<std::uint32_t> const& excludedAccounts,
     DirectoryPresenceMap const& presence)
 {
     std::vector<std::pair<SortKey, DirectoryEntry>> indexed;
@@ -48,9 +48,9 @@ std::vector<DirectoryEntry> BuildDirectory(std::vector<SocialProfile> const& pro
         // name is an authoring bug (the store only persists validated names).
         if (profile.displayName.empty())
             continue;
-        // Playerbot accounts are never participants in the human directory,
-        // even when an operator (mis)configured a profile for them.
-        if (botAccounts.count(profile.accountId) != 0)
+        // Configured/runtime bots and the authenticated viewer are never
+        // participants in this public directory response.
+        if (excludedAccounts.count(profile.accountId) != 0)
             continue;
 
         DirectoryEntry entry;

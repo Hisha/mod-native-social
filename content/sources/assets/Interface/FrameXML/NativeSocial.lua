@@ -53,7 +53,10 @@ end
 
 local function NativeSocial_Escape(value)
 	value = string.gsub(value or "", "\\", "\\\\");
-	return string.gsub(value, "\t", "\\t");
+	value = string.gsub(value, "\t", "\\t");
+	-- string.gsub also returns a replacement count. Return the escaped value
+	-- alone so a final NSOC argument cannot silently add an extra field.
+	return value;
 end
 
 local function NativeSocial_Unescape(value)
@@ -100,6 +103,55 @@ end
 
 local function NativeSocial_SetShown(frame, shown)
 	if shown then frame:Show(); else frame:Hide(); end
+end
+
+local function NativeSocial_LayoutNavigation()
+	local directoryButton = NativeSocialPlayersPanelDirectoryButton;
+	local profileButton = NativeSocialPlayersPanelProfileButton;
+	local adminButton = NativeSocialPlayersPanelAdminButton;
+	local refreshButton = NativeSocialPlayersPanelRefresh;
+	local allButtons = { directoryButton, profileButton, adminButton, refreshButton };
+	for _, button in ipairs(allButtons) do
+		button:Hide();
+		button:ClearAllPoints();
+	end
+
+	local visible = { };
+	if currentView == "directory" then
+		tinsert(visible, profileButton);
+		if admin.authorized then tinsert(visible, adminButton); end
+		tinsert(visible, refreshButton);
+	elseif currentView == "profile" then
+		tinsert(visible, directoryButton);
+		if admin.authorized then tinsert(visible, adminButton); end
+	elseif currentView == "admin" then
+		tinsert(visible, directoryButton);
+		tinsert(visible, profileButton);
+	end
+
+	local x = 14;
+	for _, button in ipairs(visible) do
+		button:SetPoint("TOPLEFT", NativeSocialPlayersPanel, "TOPLEFT", x, -38);
+		button:Show();
+		x = x + button:GetWidth() + 4;
+	end
+end
+
+local function NativeSocial_ProfileDraftIsDirty()
+	if not playersFrameCreated or profile.state == "idle" or profile.state == "requesting" then return false; end
+	local draftName = NativeSocialPlayersPanelProfileName:GetText() or "";
+	local draftOffline = NativeSocialPlayersPanelProfileAppearOffline:GetChecked() and true or false;
+	return draftName ~= profile.displayName or draftOffline ~= profile.appearOffline;
+end
+
+local function NativeSocial_PreserveProfileDraftNotice()
+	if currentView ~= "profile" or not NativeSocial_ProfileDraftIsDirty() then return; end
+	local notice = "Unsaved profile edits are preserved until you return.";
+	if not profile.status or profile.status == "" then
+		profile.status = notice;
+	elseif not string.find(profile.status, notice, 1, true) then
+		profile.status = profile.status .. " " .. notice;
+	end
 end
 
 local function NativeSocial_Send(kind, command, ...)
@@ -190,13 +242,12 @@ end
 
 function NativeSocialPlayers_Render()
 	if not playersFrameCreated then return; end
+	NativeSocial_LayoutNavigation();
 	local directoryVisible = currentView == "directory";
 	NativeSocial_SetShown(NativeSocialPlayersScrollFrame, directoryVisible);
-	NativeSocial_SetShown(NativeSocialPlayersPanelRefresh, directoryVisible);
 	NativeSocial_SetShown(NativeSocialPlayersPanelStatus, directoryVisible);
 	NativeSocial_SetShown(NativeSocialPlayersPanelProfile, currentView == "profile");
 	NativeSocial_SetShown(NativeSocialPlayersPanelAdmin, currentView == "admin");
-	NativeSocial_SetShown(NativeSocialPlayersPanelAdminButton, admin.authorized);
 
 	if directoryVisible then
 		local status = NativeSocialPlayersPanelStatus;
@@ -326,14 +377,21 @@ local function NativeSocial_HandleProfile(command, fields)
 		profile.configured = fields[6] == "1";
 		profile.displayName = NativeSocial_Unescape(fields[7]);
 		profile.appearOffline = fields[8] == "1";
-		profile.state = fields[4] == "accepted" and "complete" or "error";
+		local saved = fields[4] == "accepted";
+		profile.state = saved and "complete" or "error";
 		profile.status = NativeSocial_Unescape(fields[5]);
 	else
 		return false, "Unexpected profile response";
 	end
 	pending = nil;
-	NativeSocialPlayersPanelProfileName:SetText(profile.displayName);
-	NativeSocialPlayersPanelProfileAppearOffline:SetChecked(profile.appearOffline);
+	if command == "PROFILE_SAVE_RESULT" and fields[4] ~= "accepted" then
+		NativeSocialPlayersPanelProfileName:SetText(profile.draftName or profile.displayName);
+		NativeSocialPlayersPanelProfileAppearOffline:SetChecked(profile.draftOffline and true or false);
+	else
+		NativeSocialPlayersPanelProfileName:SetText(profile.displayName);
+		NativeSocialPlayersPanelProfileAppearOffline:SetChecked(profile.appearOffline);
+	end
+	profile.draftName, profile.draftOffline = nil, nil;
 	NativeSocialPlayers_Render();
 	if command == "PROFILE_SAVE_RESULT" and fields[4] == "accepted" then NativeSocial_RequestDirectory(); end
 	return true;
@@ -430,6 +488,7 @@ transport:SetScript("OnEvent", NativeSocial_OnEvent);
 
 function NativeSocialPlayers_ShowDirectory()
 	NativeSocialPlayers_EnsureCreated();
+	NativeSocial_PreserveProfileDraftNotice();
 	currentView = "directory";
 	NativeSocialPlayers_Render();
 	if directory.state == "idle" then NativeSocial_RequestDirectory(); end
@@ -439,12 +498,13 @@ function NativeSocialPlayers_ShowProfile()
 	NativeSocialPlayers_EnsureCreated();
 	currentView = "profile";
 	NativeSocialPlayers_Render();
-	NativeSocial_RequestProfile();
+	if profile.state == "idle" then NativeSocial_RequestProfile(); end
 end
 
 function NativeSocialPlayers_ShowAdmin()
 	NativeSocialPlayers_EnsureCreated();
 	if not admin.authorized then return; end
+	NativeSocial_PreserveProfileDraftNotice();
 	currentView = "admin";
 	NativeSocialPlayers_Render();
 	NativeSocial_RequestAdminList(false);
@@ -460,6 +520,7 @@ function NativeSocialProfile_Save()
 	if pending then return; end
 	local displayName = NativeSocialPlayersPanelProfileName:GetText() or "";
 	local appearOffline = NativeSocialPlayersPanelProfileAppearOffline:GetChecked() and "1" or "0";
+	profile.draftName, profile.draftOffline = displayName, appearOffline == "1";
 	profile.state, profile.status = "requesting", "Saving profile...";
 	if NativeSocial_Send("profileSave", "PROFILE_SAVE", NativeSocial_Escape(displayName), appearOffline) then NativeSocialPlayers_Render(); end
 end

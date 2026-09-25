@@ -117,8 +117,9 @@ public:
     bool IsAccountAdvertisedOnline(std::uint32_t accountId, SocialProfile const& profile) const;
     std::vector<SocialProfile> ListAdvertisedOnline() const;
 
-    // Public account directory. Only configured profiles are returned; login
-    // usernames never enter this model. Presence is localized for the viewer.
+    // Public account directory. Only configured profiles other than the
+    // authenticated viewer are returned; login usernames never enter this
+    // model. Presence is localized for the viewer.
     std::vector<DirectoryEntry> BuildPublicDirectory(WorldSession const* viewer);
 
     struct AdminProfileState

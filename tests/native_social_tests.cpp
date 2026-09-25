@@ -63,6 +63,14 @@ void DirectoryTests()
     assert(directory[1].presence.zone.empty());
     for (auto const& entry : directory)
         assert(entry.displayName != "LOGIN_USERNAME");
+
+    // The service adds the authenticated viewer to the same exclusion set;
+    // this pure compiler then removes that account without affecting others.
+    std::unordered_set<std::uint32_t> viewerAndBots = { 1, 3 };
+    auto const viewerDirectory = BuildDirectory(profiles, viewerAndBots, live);
+    assert(viewerDirectory.size() == 2);
+    for (auto const& entry : viewerDirectory)
+        assert(entry.accountId != 1 && entry.accountId != 3);
 }
 
 void CodecTests()
@@ -91,6 +99,13 @@ void CodecTests()
     assert(fields[2] == "PROFILE_SAVE" && fields[3] == "A002");
     assert(nsocc::Unescape(fields[4]) == "New Name" && fields[5] == "1");
     assert(profileSave.size() <= nsocc::MaxMessageLength);
+
+    std::string const adminSetName = nsocc::Frame("ADMIN_SET_NAME",
+        { "A003", "206", nsocc::Escape("Isaac") });
+    auto const adminFields = nsocc::Split(adminSetName);
+    assert(adminFields.size() == 6);
+    assert(adminFields[2] == "ADMIN_SET_NAME" && adminFields[4] == "206");
+    assert(nsocc::Unescape(adminFields[5]) == "Isaac");
 }
 
 void AdminTests()
