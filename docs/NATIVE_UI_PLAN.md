@@ -13,6 +13,18 @@ renders WotLK-style rows:
 - faction and localized zone/instance;
 - or an offline marker and `Offline` with no hidden character data.
 
+The same panel includes a **My Profile** view. `PROFILE_GET` shows the current
+account Display Name and Appear Offline state; `PROFILE_SAVE` sends only the
+new name and privacy flag. The authenticated server session supplies the
+account ID. Successful saves update the persistent row and in-memory store,
+then refresh the directory without restarting worldserver.
+
+Authorized administrators also see an **Admin** view backed by the existing
+`ADMIN_CAPS`, `ADMIN_LIST`, and `ADMIN_SET_NAME` operations. It lists eligible
+account IDs, including unconfigured profiles, and can assign a Display Name.
+The button is hidden for ordinary players, while every operation independently
+rechecks authorization on the server.
+
 The server supplies the final ordering. The client does not infer identity,
 authorization, privacy, or bot state. A refresh button starts a new request;
 stale request IDs and malformed frames are ignored or converted into a safe
@@ -23,7 +35,7 @@ capability declared by the EPF. The module contains no executable hashes,
 offsets, patch recipes, or binary-generation logic. Portalkeeper owns how the
 realm supplies that capability.
 
-Graphical account administration is deliberately deferred. The authorized
-NSOC create/list/set-name server operations and GM recovery commands are in
-place first; a later management frame can consume them without changing the
-account identity or security boundary.
+Graphical account creation remains deliberately deferred. Although the legacy
+authorized server operation exists, the management frame contains no password
+field and emits no credential-bearing request. A separate review and explicit
+approval are required before adding credentials to the native UI transport.

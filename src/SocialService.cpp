@@ -202,7 +202,7 @@ bool SocialService::SetAppearOffline(std::uint32_t accountId, bool value, std::s
 {
     if (!SocialProfileStore::Instance().SetAppearOffline(accountId, value))
     {
-        message = "set a display name first (.social name <name>) before using appear offline.";
+        message = "the appear-offline setting could not be saved; configure a display name first.";
         return false;
     }
     message = value
@@ -210,6 +210,51 @@ bool SocialService::SetAppearOffline(std::uint32_t accountId, bool value, std::s
           "diagnostics still see your true presence."
         : "you will appear online to other players.";
     return true;
+}
+
+bool SocialService::GetOwnProfile(WorldSession const* session, SocialProfile& out) const
+{
+    if (!session)
+        return false;
+    std::uint32_t const accountId = session->GetAccountId();
+    if (!IsEligibleHumanAccount(accountId))
+        return false;
+    GetProfile(accountId, out);
+    return true;
+}
+
+NameResult SocialService::SaveOwnProfile(WorldSession const* session,
+    std::string const& displayName, bool appearOffline, std::string& message)
+{
+    if (!session)
+    {
+        message = "an authenticated session is required.";
+        return NameResult::StorageFailure;
+    }
+
+    std::uint32_t const accountId = session->GetAccountId();
+    if (!IsEligibleHumanAccount(accountId))
+    {
+        message = "this account is not eligible for Native Social.";
+        return NameResult::StorageFailure;
+    }
+
+    NameResult const nameResult = SetDisplayName(accountId, displayName);
+    if (nameResult != NameResult::Ok)
+    {
+        message = "display name " + NameResultToString(nameResult) + ".";
+        return nameResult;
+    }
+
+    std::string appearOfflineMessage;
+    if (!SetAppearOffline(accountId, appearOffline, appearOfflineMessage))
+    {
+        message = "display name saved, but " + appearOfflineMessage;
+        return NameResult::StorageFailure;
+    }
+
+    message = "profile saved.";
+    return NameResult::Ok;
 }
 
 bool SocialService::IsAccountOnline(std::uint32_t accountId) const

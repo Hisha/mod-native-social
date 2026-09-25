@@ -108,6 +108,9 @@ public:
     bool GetProfile(std::uint32_t accountId, SocialProfile& out) const;
     NameResult SetDisplayName(std::uint32_t accountId, std::string const& displayName);
     bool SetAppearOffline(std::uint32_t accountId, bool value, std::string& message);
+    bool GetOwnProfile(WorldSession const* session, SocialProfile& out) const;
+    NameResult SaveOwnProfile(WorldSession const* session, std::string const& displayName,
+        bool appearOffline, std::string& message);
 
     // Presence, honouring the appear-offline privacy flag.
     bool IsAccountOnline(std::uint32_t accountId) const;

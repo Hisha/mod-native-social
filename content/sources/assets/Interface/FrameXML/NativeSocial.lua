@@ -1,19 +1,25 @@
--- Native Social account directory for protected WoW 3.3.5a FrameXML.
--- The server remains authoritative for membership, privacy and admin access.
+-- Native Social account directory and profile management for protected WoW 3.3.5a FrameXML.
+-- The server remains authoritative for identity, membership, privacy and admin access.
 
 local NSOC_PREFIX = "NSOC";
 local NSOC_VERSION = "01";
 local NSOC_DELIMITER = "\t";
 local NSOC_MAX_MESSAGE_LENGTH = 254;
 local NSOC_PLAYERS_BUTTON_HEIGHT = 58;
+local NSOC_ADMIN_BUTTON_HEIGHT = 24;
 
 local transport = CreateFrame("Frame", "NativeSocialTransport");
 transport:RegisterEvent("CHAT_MSG_ADDON");
 
 local requestCounter = 0;
-local pendingRequestId = nil;
+local pending = nil;
+local currentView = "directory";
 local directory = { state = "idle", expected = 0, rows = { }, parts = { }, error = nil };
+local profile = { state = "idle", configured = false, displayName = "", appearOffline = false, status = nil };
+local admin = { capsKnown = false, authorized = false, state = "idle", expected = 0,
+	rows = { }, status = nil, selectedId = nil, afterSave = false };
 local shownRows = { };
+local adminShownRows = { };
 local playersFrameCreated = false;
 
 local raceNames = {
@@ -45,6 +51,11 @@ local function NativeSocial_NextRequestId()
 	return id;
 end
 
+local function NativeSocial_Escape(value)
+	value = string.gsub(value or "", "\\", "\\\\");
+	return string.gsub(value, "\t", "\\t");
+end
+
 local function NativeSocial_Unescape(value)
 	local out = { };
 	local i = 1;
@@ -71,87 +82,43 @@ local function NativeSocial_Split(message)
 		tinsert(fields, string.sub(message, cursor, tab - 1));
 		cursor = tab + 1;
 	end
-	if #message > 0 and string.sub(message, -1) == NSOC_DELIMITER then
-		tinsert(fields, "");
-	end
+	if #message > 0 and string.sub(message, -1) == NSOC_DELIMITER then tinsert(fields, ""); end
 	return fields;
 end
 
-local function NativeSocial_Fail(message)
-	directory.state = "error";
-	directory.error = message;
-	pendingRequestId = nil;
-	NativeSocialPlayers_Render();
-end
-
-local function NativeSocial_Finalize()
-	local rows = { };
-	for index = 0, directory.expected - 1 do
-		local row = directory.parts[index];
-		if not row then NativeSocial_Fail("Directory response is incomplete"); return; end
-		if row.online and #row.presence ~= 6 then NativeSocial_Fail("Online presence is incomplete"); return; end
-		if not row.online and #row.presence ~= 0 then NativeSocial_Fail("Offline entry contains presence"); return; end
-		if row.online then
-			row.characterName = NativeSocial_Unescape(row.presence[1]);
-			row.level = tonumber(row.presence[2]) or 0;
-			row.race = tonumber(row.presence[3]) or 0;
-			row.class = tonumber(row.presence[4]) or 0;
-			row.faction = row.presence[5];
-			row.location = NativeSocial_Unescape(row.presence[6]);
-		end
-		tinsert(rows, row);
+local function NativeSocial_SetStatus(kind, message)
+	if kind == "directory" then
+		directory.state, directory.error = "error", message;
+	elseif kind == "profile" or kind == "profileSave" then
+		profile.state, profile.status = "error", message;
+	elseif kind == "admin" or kind == "adminSave" then
+		admin.state, admin.status = "error", message;
+	elseif kind == "caps" then
+		admin.capsKnown, admin.authorized = true, false;
 	end
-	directory.rows = rows;
-	directory.state = "complete";
-	pendingRequestId = nil;
-	NativeSocialPlayers_Render();
 end
 
-local function NativeSocial_HandleResponse(message)
-	if not message or #message > NSOC_MAX_MESSAGE_LENGTH then return; end
-	local fields = NativeSocial_Split(message);
-	if #fields < 3 or fields[1] ~= NSOC_VERSION then return; end
-	local command, requestId = fields[2], fields[3];
-	if not pendingRequestId or requestId ~= pendingRequestId then return; end
+local function NativeSocial_SetShown(frame, shown)
+	if shown then frame:Show(); else frame:Hide(); end
+end
 
-	if command == "DIR_START" then
-		if #fields ~= 4 then NativeSocial_Fail("Malformed directory start"); return; end
-		local count = tonumber(fields[4]);
-		if not count or count < 0 or count > 100000 then NativeSocial_Fail("Invalid directory size"); return; end
-		directory.state, directory.expected, directory.parts = "listening", count, { };
+local function NativeSocial_Send(kind, command, ...)
+	if pending then return false; end
+	if not UnitExists("player") then return false; end
+	local playerName = UnitName("player");
+	if not playerName or playerName == "" then return false; end
+	local requestId = NativeSocial_NextRequestId();
+	local fields = { NSOC_VERSION, command, requestId, ... };
+	local payload = table.concat(fields, NSOC_DELIMITER);
+	if #payload + #NSOC_PREFIX + 1 > NSOC_MAX_MESSAGE_LENGTH then
+		NativeSocial_SetStatus(kind, "Request is too long.");
 		NativeSocialPlayers_Render();
-	elseif command == "DIR_ENTRY" then
-		if #fields < 6 or directory.state ~= "listening" then return; end
-		local index, part = tonumber(fields[4]), tonumber(fields[5]);
-		if not index or not part or index < 0 or index >= directory.expected then NativeSocial_Fail("Invalid directory entry"); return; end
-		local row = directory.parts[index];
-		if part == 0 then
-			if row or #fields < 8 then NativeSocial_Fail("Malformed directory identity"); return; end
-			row = { online = fields[6] == "1", accountId = tonumber(fields[7]),
-				displayName = NativeSocial_Unescape(fields[8]), presence = { }, nextPart = 1 };
-			if not row.accountId or row.displayName == "" then NativeSocial_Fail("Invalid directory identity"); return; end
-			for i = 9, #fields do tinsert(row.presence, fields[i]); end
-			directory.parts[index] = row;
-		else
-			if not row or part ~= row.nextPart then NativeSocial_Fail("Out-of-order directory part"); return; end
-			for i = 6, #fields do tinsert(row.presence, fields[i]); end
-			row.nextPart = row.nextPart + 1;
-		end
-	elseif command == "DIR_END" then
-		if #fields ~= 3 or directory.state ~= "listening" then NativeSocial_Fail("Malformed directory end"); return; end
-		NativeSocial_Finalize();
-	elseif command == "ERROR" then
-		NativeSocial_Fail(#fields >= 5 and NativeSocial_Unescape(fields[5]) or "Server error");
+		return false;
 	end
+	pending = { id = requestId, kind = kind };
+	SendAddonMessage(NSOC_PREFIX, payload, "WHISPER", playerName);
+	return true;
 end
-
-local function NativeSocial_OnEvent(self, event, ...)
-	local prefix, message = ...;
-	if event ~= "CHAT_MSG_ADDON" or prefix ~= NSOC_PREFIX then return; end
-	local ok = pcall(NativeSocial_HandleResponse, message);
-	if not ok then NativeSocial_Fail("Malformed server response"); end
-end
-transport:SetScript("OnEvent", NativeSocial_OnEvent);
 
 local function NativeSocialPlayers_SetButton(button, index, firstButton)
 	local row = shownRows[index];
@@ -184,44 +151,341 @@ local function NativeSocialPlayers_GetScrollTop(offset)
 		#shownRows * NSOC_PLAYERS_BUTTON_HEIGHT;
 end
 
+local function NativeSocialAdmin_SetButton(button, index, firstButton)
+	local row = adminShownRows[index];
+	local account = _G[button:GetName() .. "Account"];
+	local name = _G[button:GetName() .. "Name"];
+	if not row then
+		button.accountId = nil; account:SetText(""); name:SetText("");
+		button:Hide(); return NSOC_ADMIN_BUTTON_HEIGHT;
+	end
+	button.accountId = row.accountId;
+	button:Show();
+	account:SetText("Account " .. row.accountId);
+	name:SetText(row.configured and row.displayName or "Not configured");
+	if row.accountId == admin.selectedId then button:LockHighlight(); else button:UnlockHighlight(); end
+	return NSOC_ADMIN_BUTTON_HEIGHT;
+end
+
+local function NativeSocialAdmin_GetScrollTop(offset)
+	if #adminShownRows == 0 then return; end
+	local index = math.min(math.floor(offset / NSOC_ADMIN_BUTTON_HEIGHT) + 1, #adminShownRows);
+	return index, (index - 1) * NSOC_ADMIN_BUTTON_HEIGHT - offset,
+		#adminShownRows * NSOC_ADMIN_BUTTON_HEIGHT;
+end
+
 local function NativeSocialPlayers_EnsureCreated()
 	if playersFrameCreated then return; end
-
 	NativeSocialPlayersScrollFrame.scrollBar = NativeSocialPlayersScrollFrameScrollBar;
-
 	DynamicScrollFrame_CreateButtons(NativeSocialPlayersScrollFrame,
 		"NativeSocialPlayersButtonTemplate", NSOC_PLAYERS_BUTTON_HEIGHT,
 		NativeSocialPlayers_SetButton, NativeSocialPlayers_GetScrollTop);
-
+	NativeSocialPlayersPanelAdminScrollFrame.scrollBar = NativeSocialPlayersPanelAdminScrollFrameScrollBar;
+	DynamicScrollFrame_CreateButtons(NativeSocialPlayersPanelAdminScrollFrame,
+		"NativeSocialAdminButtonTemplate", NSOC_ADMIN_BUTTON_HEIGHT,
+		NativeSocialAdmin_SetButton, NativeSocialAdmin_GetScrollTop);
+	_G[NativeSocialPlayersPanelProfileAppearOffline:GetName() .. "Text"]:SetText("Appear Offline");
 	playersFrameCreated = true;
 end
 
 function NativeSocialPlayers_Render()
 	if not playersFrameCreated then return; end
-	local status = NativeSocialPlayersPanelStatus;
-	if directory.state == "requesting" or directory.state == "listening" then
-		status:SetText("Loading players..."); status:Show(); shownRows = { };
-	elseif directory.state == "error" then
-		status:SetText("Native Social error: " .. (directory.error or "unknown")); status:Show(); shownRows = { };
-	elseif directory.state == "complete" then
-		shownRows = directory.rows;
-		if #shownRows == 0 then status:SetText("No configured player profiles."); status:Show(); else status:Hide(); end
+	local directoryVisible = currentView == "directory";
+	NativeSocial_SetShown(NativeSocialPlayersScrollFrame, directoryVisible);
+	NativeSocial_SetShown(NativeSocialPlayersPanelRefresh, directoryVisible);
+	NativeSocial_SetShown(NativeSocialPlayersPanelStatus, directoryVisible);
+	NativeSocial_SetShown(NativeSocialPlayersPanelProfile, currentView == "profile");
+	NativeSocial_SetShown(NativeSocialPlayersPanelAdmin, currentView == "admin");
+	NativeSocial_SetShown(NativeSocialPlayersPanelAdminButton, admin.authorized);
+
+	if directoryVisible then
+		local status = NativeSocialPlayersPanelStatus;
+		if directory.state == "requesting" or directory.state == "listening" then
+			status:SetText("Loading players..."); status:Show(); shownRows = { };
+		elseif directory.state == "error" then
+			status:SetText("Native Social error: " .. (directory.error or "unknown")); status:Show(); shownRows = { };
+		elseif directory.state == "complete" then
+			shownRows = directory.rows;
+			if #shownRows == 0 then status:SetText("No configured player profiles."); status:Show(); else status:Hide(); end
+		else
+			status:SetText("Select Refresh to load players."); status:Show(); shownRows = { };
+		end
+		NativeSocialPlayersScrollFrameScrollBar:SetValue(0);
+		DynamicScrollFrame_Update(NativeSocialPlayersScrollFrame);
 	end
-	NativeSocialPlayersScrollFrameScrollBar:SetValue(0);
-	DynamicScrollFrame_Update(NativeSocialPlayersScrollFrame);
+
+	if currentView == "profile" then
+		local current = profile.configured and profile.displayName or "Not configured";
+		NativeSocialPlayersPanelProfileCurrent:SetText("Current display name: " .. current);
+		NativeSocialPlayersPanelProfileStatus:SetText(profile.status or "");
+	end
+
+	if currentView == "admin" then
+		adminShownRows = admin.rows;
+		NativeSocialPlayersPanelAdminStatus:SetText(admin.status or "");
+		NativeSocialPlayersPanelAdminScrollFrameScrollBar:SetValue(0);
+		DynamicScrollFrame_Update(NativeSocialPlayersPanelAdminScrollFrame);
+	end
+end
+
+local function NativeSocial_RequestDirectory()
+	if pending then return false; end
+	directory = { state = "requesting", expected = 0, rows = { }, parts = { }, error = nil };
+	if not NativeSocial_Send("directory", "DIR_LIST") then return false; end
+	NativeSocialPlayers_Render();
+	return true;
+end
+
+local function NativeSocial_RequestCaps()
+	if admin.capsKnown then return; end
+	NativeSocial_Send("caps", "ADMIN_CAPS");
+end
+
+local function NativeSocial_RequestProfile()
+	if pending then return; end
+	profile.state, profile.status = "requesting", "Loading profile...";
+	if NativeSocial_Send("profile", "PROFILE_GET") then NativeSocialPlayers_Render(); end
+end
+
+local function NativeSocial_RequestAdminList(preserveStatus)
+	if pending then return; end
+	admin.state, admin.expected, admin.rows = "requesting", 0, { };
+	if not preserveStatus then admin.status = "Loading eligible accounts..."; end
+	if NativeSocial_Send("admin", "ADMIN_LIST") then NativeSocialPlayers_Render(); end
+end
+
+local function NativeSocial_FinalizeDirectory()
+	local rows = { };
+	for index = 0, directory.expected - 1 do
+		local row = directory.parts[index];
+		if not row then NativeSocial_SetStatus("directory", "Directory response is incomplete"); return false; end
+		if row.online and #row.presence ~= 6 then NativeSocial_SetStatus("directory", "Online presence is incomplete"); return false; end
+		if not row.online and #row.presence ~= 0 then NativeSocial_SetStatus("directory", "Offline entry contains presence"); return false; end
+		if row.online then
+			row.characterName = NativeSocial_Unescape(row.presence[1]);
+			row.level = tonumber(row.presence[2]) or 0;
+			row.race = tonumber(row.presence[3]) or 0;
+			row.class = tonumber(row.presence[4]) or 0;
+			row.faction = row.presence[5];
+			row.location = NativeSocial_Unescape(row.presence[6]);
+		end
+		tinsert(rows, row);
+	end
+	directory.rows, directory.state = rows, "complete";
+	return true;
+end
+
+local function NativeSocial_HandleDirectory(command, fields)
+	if command == "DIR_START" then
+		if #fields ~= 4 then return false, "Malformed directory start"; end
+		local count = tonumber(fields[4]);
+		if not count or count < 0 or count > 100000 then return false, "Invalid directory size"; end
+		directory.state, directory.expected, directory.parts = "listening", count, { };
+	elseif command == "DIR_ENTRY" then
+		if #fields < 6 or directory.state ~= "listening" then return false, "Unexpected directory entry"; end
+		local index, part = tonumber(fields[4]), tonumber(fields[5]);
+		if not index or not part or index < 0 or index >= directory.expected then return false, "Invalid directory entry"; end
+		local row = directory.parts[index];
+		if part == 0 then
+			if row or #fields < 8 then return false, "Malformed directory identity"; end
+			row = { online = fields[6] == "1", accountId = tonumber(fields[7]),
+				displayName = NativeSocial_Unescape(fields[8]), presence = { }, nextPart = 1 };
+			if not row.accountId or row.displayName == "" then return false, "Invalid directory identity"; end
+			for i = 9, #fields do tinsert(row.presence, fields[i]); end
+			directory.parts[index] = row;
+		else
+			if not row or part ~= row.nextPart then return false, "Out-of-order directory part"; end
+			for i = 6, #fields do tinsert(row.presence, fields[i]); end
+			row.nextPart = row.nextPart + 1;
+		end
+	elseif command == "DIR_END" then
+		if #fields ~= 3 or directory.state ~= "listening" then return false, "Malformed directory end"; end
+		if not NativeSocial_FinalizeDirectory() then return false, directory.error; end
+		pending = nil;
+		NativeSocialPlayers_Render();
+		NativeSocial_RequestCaps();
+		return true;
+	else
+		return false, "Unexpected directory response";
+	end
+	NativeSocialPlayers_Render();
+	return true;
+end
+
+local function NativeSocial_HandleProfile(command, fields)
+	if command == "PROFILE_RESULT" then
+		if #fields ~= 6 or (fields[4] ~= "0" and fields[4] ~= "1") or
+			(fields[6] ~= "0" and fields[6] ~= "1") then return false, "Malformed profile response"; end
+		profile.configured = fields[4] == "1";
+		profile.displayName = NativeSocial_Unescape(fields[5]);
+		profile.appearOffline = fields[6] == "1";
+		profile.state, profile.status = "complete", nil;
+	elseif command == "PROFILE_SAVE_RESULT" then
+		if #fields ~= 8 or (fields[6] ~= "0" and fields[6] ~= "1") or
+			(fields[8] ~= "0" and fields[8] ~= "1") then return false, "Malformed profile save response"; end
+		profile.configured = fields[6] == "1";
+		profile.displayName = NativeSocial_Unescape(fields[7]);
+		profile.appearOffline = fields[8] == "1";
+		profile.state = fields[4] == "accepted" and "complete" or "error";
+		profile.status = NativeSocial_Unescape(fields[5]);
+	else
+		return false, "Unexpected profile response";
+	end
+	pending = nil;
+	NativeSocialPlayersPanelProfileName:SetText(profile.displayName);
+	NativeSocialPlayersPanelProfileAppearOffline:SetChecked(profile.appearOffline);
+	NativeSocialPlayers_Render();
+	if command == "PROFILE_SAVE_RESULT" and fields[4] == "accepted" then NativeSocial_RequestDirectory(); end
+	return true;
+end
+
+local function NativeSocial_HandleAdmin(command, fields)
+	if command == "ADMIN_CAPS_RESULT" then
+		if #fields ~= 4 or (fields[4] ~= "0" and fields[4] ~= "1") then return false, "Malformed capability response"; end
+		admin.capsKnown, admin.authorized = true, fields[4] == "1";
+		pending = nil;
+		NativeSocialPlayers_Render();
+		return true;
+	elseif command == "ADMIN_START" then
+		if #fields ~= 4 then return false, "Malformed administrator list start"; end
+		local count = tonumber(fields[4]);
+		if not count or count < 0 or count > 100000 then return false, "Invalid administrator list size"; end
+		admin.state, admin.expected, admin.rows = "listening", count, { };
+	elseif command == "ADMIN_ENTRY" then
+		if #fields ~= 6 or admin.state ~= "listening" then return false, "Malformed administrator entry"; end
+		local accountId = tonumber(fields[4]);
+		if not accountId or accountId <= 0 or (fields[5] ~= "0" and fields[5] ~= "1") then return false, "Invalid administrator entry"; end
+		tinsert(admin.rows, { accountId = accountId, configured = fields[5] == "1",
+			displayName = NativeSocial_Unescape(fields[6]) });
+	elseif command == "ADMIN_END" then
+		if #fields ~= 3 or admin.state ~= "listening" or #admin.rows ~= admin.expected then return false, "Incomplete administrator list"; end
+		admin.state = "complete";
+		if not admin.status or admin.status == "Loading eligible accounts..." then admin.status = #admin.rows .. " eligible account(s)."; end
+		local refreshDirectory = admin.afterSave;
+		admin.afterSave = false;
+		pending = nil;
+		NativeSocialPlayers_Render();
+		if refreshDirectory then NativeSocial_RequestDirectory(); end
+		return true;
+	elseif command == "ADMIN_RESULT" then
+		if #fields ~= 6 then return false, "Malformed administrator result"; end
+		admin.status = NativeSocial_Unescape(fields[6]);
+		pending = nil;
+		if fields[4] == "SUCCESS" then
+			admin.afterSave = true;
+			NativeSocial_RequestAdminList(true);
+		else
+			admin.state = "error";
+			NativeSocialPlayers_Render();
+		end
+		return true;
+	else
+		return false, "Unexpected administrator response";
+	end
+	NativeSocialPlayers_Render();
+	return true;
+end
+
+local function NativeSocial_HandleResponse(message)
+	if not message or #message > NSOC_MAX_MESSAGE_LENGTH then return; end
+	local fields = NativeSocial_Split(message);
+	if #fields < 3 or fields[1] ~= NSOC_VERSION then return; end
+	local command, requestId = fields[2], fields[3];
+	if not pending or requestId ~= pending.id then return; end
+	if command == "ERROR" then
+		local kind = pending.kind;
+		pending = nil;
+		NativeSocial_SetStatus(kind, #fields >= 5 and NativeSocial_Unescape(fields[5]) or "Server error");
+		NativeSocialPlayers_Render();
+		return;
+	end
+	local ok, detail;
+	if pending.kind == "directory" then
+		ok, detail = NativeSocial_HandleDirectory(command, fields);
+	elseif pending.kind == "profile" or pending.kind == "profileSave" then
+		ok, detail = NativeSocial_HandleProfile(command, fields);
+	elseif pending.kind == "caps" or pending.kind == "admin" or pending.kind == "adminSave" then
+		ok, detail = NativeSocial_HandleAdmin(command, fields);
+	end
+	if not ok then
+		local kind = pending and pending.kind or "directory";
+		pending = nil;
+		NativeSocial_SetStatus(kind, detail or "Malformed server response");
+		NativeSocialPlayers_Render();
+	end
+end
+
+local function NativeSocial_OnEvent(self, event, ...)
+	local prefix, message = ...;
+	if event ~= "CHAT_MSG_ADDON" or prefix ~= NSOC_PREFIX then return; end
+	local ok = pcall(NativeSocial_HandleResponse, message);
+	if not ok then
+		local kind = pending and pending.kind or "directory";
+		pending = nil;
+		NativeSocial_SetStatus(kind, "Malformed server response");
+		NativeSocialPlayers_Render();
+	end
+end
+transport:SetScript("OnEvent", NativeSocial_OnEvent);
+
+function NativeSocialPlayers_ShowDirectory()
+	NativeSocialPlayers_EnsureCreated();
+	currentView = "directory";
+	NativeSocialPlayers_Render();
+	if directory.state == "idle" then NativeSocial_RequestDirectory(); end
+end
+
+function NativeSocialPlayers_ShowProfile()
+	NativeSocialPlayers_EnsureCreated();
+	currentView = "profile";
+	NativeSocialPlayers_Render();
+	NativeSocial_RequestProfile();
+end
+
+function NativeSocialPlayers_ShowAdmin()
+	NativeSocialPlayers_EnsureCreated();
+	if not admin.authorized then return; end
+	currentView = "admin";
+	NativeSocialPlayers_Render();
+	NativeSocial_RequestAdminList(false);
 end
 
 function NativeSocialPlayers_Refresh()
-	if pendingRequestId then return; end
-	if not UnitExists("player") then return; end
-	local playerName = UnitName("player");
-	if not playerName or playerName == "" then return; end
 	NativeSocialPlayers_EnsureCreated();
-	local requestId = NativeSocial_NextRequestId();
-	pendingRequestId = requestId;
-	directory = { state = "requesting", expected = 0, rows = { }, parts = { }, error = nil };
-	SendAddonMessage(NSOC_PREFIX,
-		NSOC_VERSION .. NSOC_DELIMITER .. "DIR_LIST" .. NSOC_DELIMITER .. requestId,
-		"WHISPER", playerName);
+	if directory.state == "idle" then currentView = "directory"; end
+	NativeSocial_RequestDirectory();
+end
+
+function NativeSocialProfile_Save()
+	if pending then return; end
+	local displayName = NativeSocialPlayersPanelProfileName:GetText() or "";
+	local appearOffline = NativeSocialPlayersPanelProfileAppearOffline:GetChecked() and "1" or "0";
+	profile.state, profile.status = "requesting", "Saving profile...";
+	if NativeSocial_Send("profileSave", "PROFILE_SAVE", NativeSocial_Escape(displayName), appearOffline) then NativeSocialPlayers_Render(); end
+end
+
+function NativeSocialAdmin_Select(accountId)
+	if not accountId then return; end
+	admin.selectedId = accountId;
+	for _, row in ipairs(admin.rows) do
+		if row.accountId == accountId then
+			NativeSocialPlayersPanelAdminSelected:SetText("Selected account: " .. accountId);
+			NativeSocialPlayersPanelAdminName:SetText(row.displayName or "");
+			break;
+		end
+	end
 	NativeSocialPlayers_Render();
+end
+
+function NativeSocialAdmin_SaveName()
+	if pending or not admin.authorized or not admin.selectedId then
+		admin.status = "Select an eligible account first.";
+		NativeSocialPlayers_Render();
+		return;
+	end
+	local displayName = NativeSocialPlayersPanelAdminName:GetText() or "";
+	admin.status = "Saving display name...";
+	if NativeSocial_Send("adminSave", "ADMIN_SET_NAME", tostring(admin.selectedId), NativeSocial_Escape(displayName)) then
+		NativeSocialPlayers_Render();
+	end
 end

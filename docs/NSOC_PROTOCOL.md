@@ -54,6 +54,29 @@ The earlier `LIST` / `LIST_START` / `LIST_PROFILE` / `LIST_END` exchange is
 retained as a compatibility surface and still returns visible online display
 names only. New clients use `DIR_LIST`.
 
+## Own profile
+
+Self-service requests never contain an account ID. The server derives identity
+only from the authenticated `WorldSession`, repeats the human-account
+eligibility check, and then uses the same profile store as the `.social`
+commands and administrator operations.
+
+```text
+PROFILE_GET requestId
+  -> PROFILE_RESULT requestId configured(0|1) escapedDisplayName appearOffline(0|1)
+
+PROFILE_SAVE requestId escapedDisplayName appearOffline(0|1)
+  -> PROFILE_SAVE_RESULT requestId nameResult escapedMessage
+       configured(0|1) escapedDisplayName appearOffline(0|1)
+```
+
+`PROFILE_SAVE` validates and canonicalizes the display name with the existing
+length, character, and case-insensitive uniqueness rules. Its Appear Offline
+write is read back synchronously before the in-memory profile changes. After a
+successful response, the client refreshes the public directory. Supplying an
+extra account-ID field is a wrong-field-count request and cannot target another
+account.
+
 ## Administration
 
 All authorization is repeated server-side against the authenticated
@@ -84,6 +107,12 @@ and never appear in a response. Display-name validation and uniqueness run
 before account creation. A profile failure after core account creation returns
 `PROFILE_SETUP_FAILED` and the new account ID for repair; the authentication
 account is not deleted.
+
+The native management frame currently exposes `ADMIN_LIST` and
+`ADMIN_SET_NAME`. It intentionally does not expose graphical account creation
+or any password field. The pre-existing `ADMIN_CREATE_ACCOUNT` compatibility
+operation remains server-authorized, but adding it to the UI requires a
+separate credential-transport review and approval.
 
 Errors use:
 

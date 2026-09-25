@@ -11,9 +11,12 @@ requirement:
 ```
 
 It installs three client files under `Interface/FrameXML/`: the patched stock
-FriendsFrame Lua/XML and the module-owned NativeSocial Lua transport/UI. This
-is a statement of required capability only. No Portalkeeper recipe, executable
-hash, offset, generation, or patch detail belongs in this repository.
+FriendsFrame Lua/XML and the module-owned NativeSocial Lua transport/UI. The
+Players tab includes the public directory, self-service profile/privacy
+controls, and server-authorized administrator list/set-name controls. It has no
+graphical account-creation or credential field. This is a statement of required
+capability only. No Portalkeeper recipe, executable hash, offset, generation,
+or patch detail belongs in this repository.
 
 Install the EPF through mod-content-manager, build and activate content, and
 verify the build reports `Client requirements: protected-framexml`. The active

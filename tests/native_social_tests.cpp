@@ -83,6 +83,14 @@ void CodecTests()
     assert(chunked.size() > 1);
     for (auto const& frame : chunked)
         assert(frame.size() <= 58);
+
+    std::string const profileSave = nsocc::Frame("PROFILE_SAVE",
+        { "A002", nsocc::Escape("New Name"), "1" });
+    auto const fields = nsocc::Split(profileSave);
+    assert(fields.size() == 6);
+    assert(fields[2] == "PROFILE_SAVE" && fields[3] == "A002");
+    assert(nsocc::Unescape(fields[4]) == "New Name" && fields[5] == "1");
+    assert(profileSave.size() <= nsocc::MaxMessageLength);
 }
 
 void AdminTests()

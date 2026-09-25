@@ -1225,6 +1225,23 @@
 			</Layer>
 		</Layers>
 	</Button>
+	<Button name="NativeSocialAdminButtonTemplate" virtual="true">
+		<Size><AbsDimension x="292" y="24"/></Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentAccount" inherits="GameFontNormalSmall" justifyH="LEFT">
+					<Size><AbsDimension x="92" y="18"/></Size>
+					<Anchors><Anchor point="LEFT" x="6" y="0"/></Anchors>
+				</FontString>
+				<FontString name="$parentName" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size><AbsDimension x="184" y="18"/></Size>
+					<Anchors><Anchor point="LEFT" relativeTo="$parentAccount" relativePoint="RIGHT" x="4" y="0"/></Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD"/>
+		<Scripts><OnClick>NativeSocialAdmin_Select(self.accountId);</OnClick></Scripts>
+	</Button>
 	<Frame name="FriendsFrame" toplevel="true" parent="UIParent" movable="true" enableMouse="true" hidden="true">
 		<Size>
 			<AbsDimension x="384" y="512"/>
@@ -4877,6 +4894,21 @@
 					</Layer>
 				</Layers>
 				<Frames>
+					<Button name="$parentDirectoryButton" inherits="UIPanelButtonTemplate2" text="Directory">
+						<Size><AbsDimension x="76" y="22"/></Size>
+						<Anchors><Anchor point="TOPLEFT" x="14" y="-38"/></Anchors>
+						<Scripts><OnClick function="NativeSocialPlayers_ShowDirectory"/></Scripts>
+					</Button>
+					<Button name="$parentProfileButton" inherits="UIPanelButtonTemplate2" text="My Profile">
+						<Size><AbsDimension x="82" y="22"/></Size>
+						<Anchors><Anchor point="LEFT" relativeTo="$parentDirectoryButton" relativePoint="RIGHT" x="4" y="0"/></Anchors>
+						<Scripts><OnClick function="NativeSocialPlayers_ShowProfile"/></Scripts>
+					</Button>
+					<Button name="$parentAdminButton" inherits="UIPanelButtonTemplate2" text="Admin" hidden="true">
+						<Size><AbsDimension x="62" y="22"/></Size>
+						<Anchors><Anchor point="LEFT" relativeTo="$parentProfileButton" relativePoint="RIGHT" x="4" y="0"/></Anchors>
+						<Scripts><OnClick function="NativeSocialPlayers_ShowAdmin"/></Scripts>
+					</Button>
 					<ScrollFrame name="NativeSocialPlayersScrollFrame" inherits="DynamicScrollFrameTemplate">
 						<Size><AbsDimension x="310" y="322"/></Size>
 						<Anchors><Anchor point="TOPLEFT" x="14" y="-72"/></Anchors>
@@ -4890,10 +4922,86 @@
 						</Frames>
 					</ScrollFrame>
 					<Button name="$parentRefresh" inherits="UIPanelButtonTemplate2" text="Refresh">
-						<Size><AbsDimension x="96" y="22"/></Size>
+						<Size><AbsDimension x="76" y="22"/></Size>
 						<Anchors><Anchor point="TOPRIGHT" x="-45" y="-38"/></Anchors>
 						<Scripts><OnClick function="NativeSocialPlayers_Refresh"/></Scripts>
 					</Button>
+					<Frame name="$parentProfile" hidden="true" setAllPoints="true">
+						<Layers>
+							<Layer level="ARTWORK">
+								<FontString name="$parentHeading" inherits="GameFontNormalLarge" text="Account Profile">
+									<Anchors><Anchor point="TOPLEFT" x="24" y="-88"/></Anchors>
+								</FontString>
+								<FontString name="$parentCurrent" inherits="GameFontHighlight" justifyH="LEFT">
+									<Size><AbsDimension x="300" y="20"/></Size>
+									<Anchors><Anchor point="TOPLEFT" x="24" y="-120"/></Anchors>
+								</FontString>
+								<FontString name="$parentNameLabel" inherits="GameFontNormal" text="Display Name" justifyH="LEFT">
+									<Anchors><Anchor point="TOPLEFT" x="24" y="-158"/></Anchors>
+								</FontString>
+								<FontString name="$parentStatus" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size><AbsDimension x="300" y="56"/></Size>
+									<Anchors><Anchor point="TOPLEFT" x="24" y="-275"/></Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<EditBox name="$parentName" autoFocus="false" historyLines="1" letters="48" inherits="InputBoxTemplate">
+								<Size><AbsDimension x="250" y="20"/></Size>
+								<Anchors><Anchor point="TOPLEFT" x="24" y="-180"/></Anchors>
+								<Scripts><OnEnterPressed>self:ClearFocus(); NativeSocialProfile_Save();</OnEnterPressed></Scripts>
+							</EditBox>
+							<CheckButton name="$parentAppearOffline" inherits="UICheckButtonTemplate">
+								<Anchors><Anchor point="TOPLEFT" x="20" y="-214"/></Anchors>
+							</CheckButton>
+							<Button name="$parentSave" inherits="UIPanelButtonTemplate2" text="Save Profile">
+								<Size><AbsDimension x="110" y="22"/></Size>
+								<Anchors><Anchor point="TOPLEFT" x="24" y="-246"/></Anchors>
+								<Scripts><OnClick function="NativeSocialProfile_Save"/></Scripts>
+							</Button>
+						</Frames>
+					</Frame>
+					<Frame name="$parentAdmin" hidden="true" setAllPoints="true">
+						<Layers>
+							<Layer level="ARTWORK">
+								<FontString name="$parentStatus" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Size><AbsDimension x="300" y="18"/></Size>
+									<Anchors><Anchor point="TOPLEFT" x="18" y="-72"/></Anchors>
+								</FontString>
+								<FontString name="$parentSelected" inherits="GameFontNormal" text="Select an account" justifyH="LEFT">
+									<Size><AbsDimension x="300" y="18"/></Size>
+									<Anchors><Anchor point="TOPLEFT" x="20" y="-304"/></Anchors>
+								</FontString>
+								<FontString name="$parentNameLabel" inherits="GameFontNormalSmall" text="Display Name" justifyH="LEFT">
+									<Anchors><Anchor point="TOPLEFT" x="20" y="-326"/></Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<ScrollFrame name="$parentScrollFrame" inherits="DynamicScrollFrameTemplate">
+								<Size><AbsDimension x="310" y="196"/></Size>
+								<Anchors><Anchor point="TOPLEFT" x="14" y="-94"/></Anchors>
+								<Frames>
+									<Slider name="$parentScrollBar" inherits="UIPanelScrollBarTemplate">
+										<Anchors>
+											<Anchor point="TOPRIGHT" x="-3" y="-16"/>
+											<Anchor point="BOTTOMRIGHT" x="-3" y="16"/>
+										</Anchors>
+									</Slider>
+								</Frames>
+							</ScrollFrame>
+							<EditBox name="$parentName" autoFocus="false" historyLines="1" letters="48" inherits="InputBoxTemplate">
+								<Size><AbsDimension x="220" y="20"/></Size>
+								<Anchors><Anchor point="TOPLEFT" x="20" y="-346"/></Anchors>
+								<Scripts><OnEnterPressed>self:ClearFocus(); NativeSocialAdmin_SaveName();</OnEnterPressed></Scripts>
+							</EditBox>
+							<Button name="$parentSave" inherits="UIPanelButtonTemplate2" text="Assign Name">
+								<Size><AbsDimension x="104" y="22"/></Size>
+								<Anchors><Anchor point="TOPLEFT" x="20" y="-376"/></Anchors>
+								<Scripts><OnClick function="NativeSocialAdmin_SaveName"/></Scripts>
+							</Button>
+						</Frames>
+					</Frame>
 				</Frames>
 			</Frame>
 			<Frame name="FriendsTooltip" frameStrata="TOOLTIP" hidden="true" clampedToScreen="true">

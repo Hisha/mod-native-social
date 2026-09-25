@@ -211,6 +211,13 @@ bool SocialProfileStore::SetAppearOffline(std::uint32_t accountId, bool value)
     LoginDatabase.DirectExecute(
         "UPDATE native_social_account SET appear_offline = " +
         std::string(value ? "1" : "0") + " WHERE account_id = " + std::to_string(accountId));
+
+    QueryResult check = LoginDatabase.Query(
+        "SELECT appear_offline FROM native_social_account WHERE account_id = " +
+        std::to_string(accountId));
+    if (!check || (check->Fetch()[0].Get<std::uint32_t>() != 0) != value)
+        return false;
+
     it->second.appearOffline = value;
     return true;
 }

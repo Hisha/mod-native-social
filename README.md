@@ -46,6 +46,12 @@ Players retain the existing `.social name` development/recovery path. An
 administrator can assign or change any eligible account's name with
 `.social admin name <accountId> <Display Name>`.
 
+The native Players panel also provides **My Profile** controls for changing the
+authenticated account's Display Name and Appear Offline flag. The request never
+contains a client-selected account ID. Successful changes synchronously update
+the auth database and the running worldserver's profile store, then refresh the
+directory.
+
 ## Human-account filtering
 
 Offline random-bot accounts are excluded by authentication-username prefix
@@ -91,8 +97,10 @@ Headless recovery commands:
 | `.social status [name]` | player | inspect advertised state |
 | `.social diag` | GM | integration/database/presence diagnostics |
 
-The graphical management form is deferred; the secured server contract is in
-place for it.
+The Players panel exposes authorized account listing and Display Name
+assignment. Graphical account creation remains deferred because it would add
+credential entry and transport; the client contains no password field and
+sends no account-creation request.
 
 ## Client package and integration
 

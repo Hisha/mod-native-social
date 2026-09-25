@@ -31,6 +31,10 @@ char constexpr DirectoryList[] = "DIR_LIST";
 char constexpr DirectoryStart[] = "DIR_START";
 char constexpr DirectoryEntry[] = "DIR_ENTRY";
 char constexpr DirectoryEnd[] = "DIR_END";
+char constexpr ProfileGet[] = "PROFILE_GET";
+char constexpr ProfileResult[] = "PROFILE_RESULT";
+char constexpr ProfileSave[] = "PROFILE_SAVE";
+char constexpr ProfileSaveResult[] = "PROFILE_SAVE_RESULT";
 char constexpr AdminCaps[] = "ADMIN_CAPS";
 char constexpr AdminCapsResult[] = "ADMIN_CAPS_RESULT";
 char constexpr AdminList[] = "ADMIN_LIST";
@@ -126,6 +130,30 @@ void SendDirectory(WorldSession* session, std::string const& requestId)
     NsocHandler::SendResponse(session, nsocc::Frame(command::DirectoryEnd, { requestId }));
 }
 
+void SendProfile(WorldSession* session, std::string const& requestId,
+    bool saveResult, NameResult result, std::string const& message)
+{
+    SocialProfile profile;
+    if (!SocialService::Instance().GetOwnProfile(session, profile))
+    {
+        SendError(session, requestId, nsoch::ErrorUnauthorized,
+            "Account is not eligible for Native Social");
+        return;
+    }
+
+    std::vector<std::string> fields = { requestId };
+    if (saveResult)
+    {
+        fields.push_back(NameResultToString(result));
+        fields.push_back(nsocc::Escape(message));
+    }
+    fields.push_back(profile.displayName.empty() ? "0" : "1");
+    fields.push_back(nsocc::Escape(profile.displayName));
+    fields.push_back(profile.appearOffline ? "1" : "0");
+    NsocHandler::SendResponse(session, nsocc::Frame(
+        saveResult ? command::ProfileSaveResult : command::ProfileResult, fields));
+}
+
 void SendAdminProfiles(WorldSession* session, std::string const& requestId)
 {
     SocialService& service = SocialService::Instance();
@@ -174,6 +202,28 @@ bool NsocHandler::ParseRequest(WorldSession* session, std::string const& message
         SendLegacyList(session, requestId);
     else if (cmd == command::DirectoryList && fields.size() == 4)
         SendDirectory(session, requestId);
+    else if (cmd == command::ProfileGet && fields.size() == 4)
+        SendProfile(session, requestId, false, NameResult::Ok, "");
+    else if (cmd == command::ProfileSave && fields.size() == 6)
+    {
+        if (fields[5] != "0" && fields[5] != "1")
+        {
+            SendError(session, requestId, nsoch::ErrorValidation,
+                "Appear Offline must be 0 or 1");
+            return true;
+        }
+        SocialProfile current;
+        if (!SocialService::Instance().GetOwnProfile(session, current))
+        {
+            SendError(session, requestId, nsoch::ErrorUnauthorized,
+                "Account is not eligible for Native Social");
+            return true;
+        }
+        std::string resultMessage;
+        NameResult const result = SocialService::Instance().SaveOwnProfile(
+            session, nsocc::Unescape(fields[4]), fields[5] == "1", resultMessage);
+        SendProfile(session, requestId, true, result, resultMessage);
+    }
     else if (cmd == command::AdminCaps && fields.size() == 4)
         SendResponse(session, nsocc::Frame(command::AdminCapsResult,
             { requestId, SocialService::Instance().IsAuthorizedAdmin(session) ? "1" : "0" }));
@@ -215,7 +265,8 @@ bool NsocHandler::ParseRequest(WorldSession* session, std::string const& message
     }
     else
         SendError(session, requestId,
-            (cmd == command::List || cmd == command::DirectoryList || cmd == command::AdminCaps ||
+            (cmd == command::List || cmd == command::DirectoryList || cmd == command::ProfileGet ||
+             cmd == command::ProfileSave || cmd == command::AdminCaps ||
              cmd == command::AdminList || cmd == command::AdminSetName || cmd == command::AdminCreate)
                 ? nsoch::ErrorFields : nsoch::ErrorCommand,
             "Unknown command or wrong field count");
