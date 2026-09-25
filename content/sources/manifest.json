@@ -2,8 +2,8 @@
   "schema": 3,
   "package": "mod-native-social",
   "name": "Native Social",
-  "version": "2.1.2",
-  "description": "Account-level Players directory and profile management for the protected WoW 3.3.5a Social Frame.",
+  "version": "2.2.0",
+  "description": "Account-level Players directory, stock whisper launch, and profile management for the protected WoW 3.3.5a Social Frame.",
   "clientRequirements": [
     "protected-framexml"
   ],

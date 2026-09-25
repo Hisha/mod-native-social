@@ -101,6 +101,14 @@ local function NativeSocial_SetStatus(kind, message)
 	end
 end
 
+local function NativeSocial_ShowWhisperError(message)
+	if UIErrorsFrame then
+		UIErrorsFrame:AddMessage(message or "Unable to open whisper.", 1.0, 0.1, 0.1, 1.0);
+	elseif DEFAULT_CHAT_FRAME then
+		DEFAULT_CHAT_FRAME:AddMessage(message or "Unable to open whisper.");
+	end
+end
+
 local function NativeSocial_SetShown(frame, shown)
 	if shown then frame:Show(); else frame:Hide(); end
 end
@@ -183,10 +191,13 @@ local function NativeSocialPlayers_SetButton(button, index, firstButton)
 	local character = _G[button:GetName() .. "Character"];
 	local faction = _G[button:GetName() .. "Faction"];
 	local location = _G[button:GetName() .. "Location"];
+	local whisper = _G[button:GetName() .. "Whisper"];
 	if not row then
 		name:SetText(""); character:SetText(""); faction:SetText(""); location:SetText("");
+		button.accountId = nil; whisper:Hide();
 		button:Hide(); return NSOC_PLAYERS_BUTTON_HEIGHT;
 	end
+	button.accountId = row.accountId;
 	button:Show();
 	name:SetText((row.online and "|cff20ff20+|r " or "|cff808080-|r ") .. row.displayName);
 	if row.online then
@@ -195,8 +206,9 @@ local function NativeSocialPlayers_SetButton(button, index, firstButton)
 			(classNames[row.class] or ("Class " .. row.class)));
 		faction:SetText(row.faction == "H" and (HORDE or "Horde") or (ALLIANCE or "Alliance"));
 		location:SetText(row.location);
+		whisper:Show();
 	else
-		character:SetText(PLAYER_OFFLINE or "Offline"); faction:SetText(""); location:SetText("");
+		character:SetText(PLAYER_OFFLINE or "Offline"); faction:SetText(""); location:SetText(""); whisper:Hide();
 	end
 	return NSOC_PLAYERS_BUTTON_HEIGHT;
 end
@@ -402,6 +414,26 @@ local function NativeSocial_HandleProfile(command, fields)
 	return true;
 end
 
+local function NativeSocial_HandleWhisper(command, fields)
+	if command ~= "WHISPER_TARGET" or #fields ~= 5 or
+		(fields[4] ~= "0" and fields[4] ~= "1") then
+		return false, "Malformed whisper target response";
+	end
+	local available = fields[4] == "1";
+	local value = NativeSocial_Unescape(fields[5]);
+	pending = nil;
+	if available then
+		if value == "" or not ChatFrame_SendTell then
+			NativeSocial_ShowWhisperError("Unable to open whisper.");
+		else
+			ChatFrame_SendTell(value);
+		end
+	else
+		NativeSocial_ShowWhisperError(value ~= "" and value or "That player is no longer available to whisper.");
+	end
+	return true;
+end
+
 local function NativeSocial_HandleAdmin(command, fields)
 	if command == "ADMIN_CAPS_RESULT" then
 		if #fields ~= 4 or (fields[4] ~= "0" and fields[4] ~= "1") then return false, "Malformed capability response"; end
@@ -461,13 +493,16 @@ local function NativeSocial_HandleResponse(message)
 	if command == "ERROR" then
 		local kind = pending.kind;
 		pending = nil;
-		NativeSocial_SetStatus(kind, #fields >= 5 and NativeSocial_Unescape(fields[5]) or "Server error");
+		local message = #fields >= 5 and NativeSocial_Unescape(fields[5]) or "Server error";
+		if kind == "whisper" then NativeSocial_ShowWhisperError(message); else NativeSocial_SetStatus(kind, message); end
 		NativeSocialPlayers_Render();
 		return;
 	end
 	local ok, detail;
 	if pending.kind == "directory" then
 		ok, detail = NativeSocial_HandleDirectory(command, fields);
+	elseif pending.kind == "whisper" then
+		ok, detail = NativeSocial_HandleWhisper(command, fields);
 	elseif pending.kind == "profile" or pending.kind == "profileSave" then
 		ok, detail = NativeSocial_HandleProfile(command, fields);
 	elseif pending.kind == "caps" or pending.kind == "admin" or pending.kind == "adminSave" then
@@ -476,7 +511,8 @@ local function NativeSocial_HandleResponse(message)
 	if not ok then
 		local kind = pending and pending.kind or "directory";
 		pending = nil;
-		NativeSocial_SetStatus(kind, detail or "Malformed server response");
+		local message = detail or "Malformed server response";
+		if kind == "whisper" then NativeSocial_ShowWhisperError(message); else NativeSocial_SetStatus(kind, message); end
 		NativeSocialPlayers_Render();
 	end
 end
@@ -488,7 +524,11 @@ local function NativeSocial_OnEvent(self, event, ...)
 	if not ok then
 		local kind = pending and pending.kind or "directory";
 		pending = nil;
-		NativeSocial_SetStatus(kind, "Malformed server response");
+		if kind == "whisper" then
+			NativeSocial_ShowWhisperError("Malformed server response");
+		else
+			NativeSocial_SetStatus(kind, "Malformed server response");
+		end
 		NativeSocialPlayers_Render();
 	end
 end
@@ -522,6 +562,19 @@ function NativeSocialPlayers_Refresh()
 	NativeSocialPlayers_EnsureCreated();
 	if directory.state == "idle" then currentView = "directory"; end
 	NativeSocial_RequestDirectory();
+end
+
+function NativeSocialPlayers_Whisper(accountId)
+	if pending or not accountId then return; end
+	local online = false;
+	for _, row in ipairs(directory.rows) do
+		if row.accountId == accountId and row.online then online = true; break; end
+	end
+	if not online then
+		NativeSocial_ShowWhisperError("That player is no longer available to whisper.");
+		return;
+	end
+	NativeSocial_Send("whisper", "WHISPER_RESOLVE", tostring(accountId));
 end
 
 function NativeSocialProfile_Save()

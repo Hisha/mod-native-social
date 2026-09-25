@@ -57,4 +57,27 @@ assert profile_store.index("SELECT appear_offline FROM native_social_account") <
 # No authentication username fallback exists in display-name logic.
 assert "username" not in profile.lower()
 
+# Whisper target resolution is performed at click time. The server derives the
+# viewer from the authenticated session and repeats self, eligibility, profile
+# privacy, advertised-online, and live-session/account checks before returning
+# the current character name.
+resolve = service[service.index("bool SocialService::ResolveWhisperTarget"):
+                  service.index("bool SocialService::IsAuthorizedAdmin")]
+for required in {
+    "viewer->GetAccountId() == targetAccountId",
+    "IsEligibleHumanAccount(targetAccountId)",
+    "profile.appearOffline",
+    "IsAccountAdvertisedOnline(targetAccountId, profile)",
+    "ActiveCharacterForAccount(targetAccountId)",
+    "target->GetSession()->GetAccountId() != targetAccountId",
+}:
+    assert required in resolve
+
+whisper_request = handler[handler.index("cmd == command::WhisperResolve"):
+                          handler.index("cmd == command::ProfileGet")]
+assert "fields.size() == 5" in whisper_request
+assert "ResolveWhisperTarget(session, accountId, characterName)" in whisper_request
+assert "WHISPER_TARGET" not in client or "ChatFrame_SendTell" in client
+assert "SendChatMessage" not in client
+
 print("security/privacy static checks passed")

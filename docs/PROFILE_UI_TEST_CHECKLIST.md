@@ -31,11 +31,21 @@ online on another client so directory visibility can be observed independently.
 8. With two different eligible accounts logged in, refresh both directories.
    Confirm each sees the other account and neither sees itself. Repeat with a
    second character on either account.
-9. Restart worldserver and confirm the saved name and Appear Offline state are
+9. On an online account row, click Whisper. Confirm the stock chat edit box
+   opens addressed to that account's active character; send a message and have
+   the recipient reply with `/r`. Switch the recipient to another character,
+   refresh, and confirm Whisper targets the new character. Then test a logout
+   and Appear Offline transition between directory refresh and click; confirm
+   Native Social returns the generic unavailable error and opens no whisper.
+10. Craft `WHISPER_RESOLVE` requests for the viewer's own account, an offline
+   account, an Appear Offline account, an excluded account, a Playerbot account,
+   and a nonexistent account. Confirm every request returns unavailable without
+   a character name.
+11. Restart worldserver and confirm the saved name and Appear Offline state are
    restored from the auth database.
-10. Craft `PROFILE_SAVE` with an extra account-ID field. Confirm the server
+12. Craft `PROFILE_SAVE` with an extra account-ID field. Confirm the server
    returns a wrong-field-count error and the target account is unchanged.
-11. Craft `ADMIN_LIST` and `ADMIN_SET_NAME` from the normal account. Confirm the
+13. Craft `ADMIN_LIST` and `ADMIN_SET_NAME` from the normal account. Confirm the
    server returns an authorization error and no profile changes.
 
 ## Administrator

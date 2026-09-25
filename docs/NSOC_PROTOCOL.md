@@ -56,6 +56,25 @@ The earlier `LIST` / `LIST_START` / `LIST_PROFILE` / `LIST_END` exchange is
 retained as a compatibility surface and still returns visible online display
 names only. New clients use `DIR_LIST`.
 
+## Stock whisper target resolution
+
+The directory character name is display data and may be stale by the time a
+player clicks Whisper. The client therefore sends only the selected internal
+account ID for a fresh, authenticated resolution:
+
+```text
+WHISPER_RESOLVE requestId targetAccountId
+  -> WHISPER_TARGET requestId available(0|1) escapedCharacterNameOrMessage
+```
+
+The server derives the viewer account from `WorldSession` and rejects self,
+missing, excluded, Playerbot, unconfigured, offline, and Appear Offline targets.
+It repeats live session/account validation before returning the current
+character name. All unavailable cases return the same public failure message.
+On success the client passes the returned name to `ChatFrame_SendTell`; ordinary
+whisper text, replies, history, restrictions, and delivery use WoW's existing
+chat path and never pass through NSOC.
+
 ## Own profile
 
 Self-service requests never contain an account ID. The server derives identity

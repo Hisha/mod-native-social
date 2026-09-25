@@ -22,6 +22,14 @@ Ordering is online first and then offline, alphabetically by the
 case-insensitive Display Name key within each group, with account ID as the
 last tie breaker.
 
+Online rows include a **Whisper** action. Clicking it does not trust the
+character name cached in the directory response: an authenticated NSOC request
+asks the server to revalidate the selected account and resolve its currently
+advertised character. On success the client calls WoW's stock
+`ChatFrame_SendTell`, after which message sending, `/r`, history, colors,
+sounds, ignore handling, throttling, and delivery all remain ordinary WoW
+whisper behavior. Offline and Appear Offline rows expose no action or target.
+
 ## Privacy
 
 `appear_offline` is persistent and server-authoritative:
@@ -129,8 +137,10 @@ hashes, offsets, recipe IDs, generations, or binary patch details.
 
 NSOC extends the existing addon-message whisper transport; there is no custom
 opcode. `DIR_LIST` returns offline and online account entries using deterministic
-entry/part framing below the 254-byte limit. Legacy online-only `LIST` remains
-for compatibility. See [docs/NSOC_PROTOCOL.md](docs/NSOC_PROTOCOL.md).
+entry/part framing below the 254-byte limit. `WHISPER_RESOLVE` performs only
+click-time target resolution; ordinary whisper text never uses NSOC. Legacy
+online-only `LIST` remains for compatibility. See
+[docs/NSOC_PROTOCOL.md](docs/NSOC_PROTOCOL.md).
 
 ## Database
 
@@ -152,11 +162,11 @@ bash tests/run_standalone.sh
 ```
 
 These cover validation, directory membership/order, configured account filtering,
-Appear Offline suppression, framing/chunking, administrative denial/failure/
-partial-success paths, and the schema-3 EPF. A compile against the target
+Appear Offline suppression, secure whisper-target resolution, framing/chunking,
+administrative denial/failure/partial-success paths, and the schema-3 EPF. A compile against the target
 AzerothCore/Playerbot fork and live behavior remain PTR acceptance items.
 
 ## Deferred
 
-Favorites, blocking, direct messages, offline messages, unread queues,
+Favorites, account-level direct messages, offline messages, unread queues,
 cross-realm social, and a graphical admin form are intentionally deferred.

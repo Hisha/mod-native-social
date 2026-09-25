@@ -122,6 +122,13 @@ public:
     // model. Presence is localized for the viewer.
     std::vector<DirectoryEntry> BuildPublicDirectory(WorldSession const* viewer);
 
+    // Resolve the target account's currently advertised character at click
+    // time for the stock WoW whisper UI. The viewer identity comes only from
+    // the authenticated session; unavailable/private/ineligible targets all
+    // fail without returning character data.
+    bool ResolveWhisperTarget(WorldSession const* viewer, std::uint32_t targetAccountId,
+        std::string& characterName);
+
     struct AdminProfileState
     {
         std::uint32_t accountId = 0;

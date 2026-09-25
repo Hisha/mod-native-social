@@ -5,7 +5,7 @@ import zipfile
 root = pathlib.Path(__file__).resolve().parents[1]
 source = json.loads((root / "content/sources/manifest.json").read_text())
 assert source["schema"] == 3
-assert source["version"] == "2.1.2"
+assert source["version"] == "2.2.0"
 assert source["clientRequirements"] == ["protected-framexml"]
 targets = {item["target"] for item in source["content"]}
 assert targets == {

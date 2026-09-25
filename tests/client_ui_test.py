@@ -11,6 +11,7 @@ names = {element.attrib.get("name") for element in xml_root.iter() if element.at
 assert "FriendsFrameTab6" in names
 assert "NativeSocialPlayersPanel" in names
 assert "NativeSocialAdminButtonTemplate" in names
+assert "$parentWhisper" in names
 for child in {
     "$parentDirectoryButton", "$parentProfileButton", "$parentAdminButton",
     "$parentProfile", "$parentAdmin", "$parentAppearOffline",
@@ -31,11 +32,14 @@ assert 'FriendsFrame.selectedTab == 6' in friends_lua
 for command in {
     "DIR_LIST", "PROFILE_GET", "PROFILE_SAVE", "ADMIN_CAPS", "ADMIN_LIST",
     "ADMIN_SET_NAME",
+    "WHISPER_RESOLVE", "WHISPER_TARGET",
 }:
     assert f'"{command}"' in native_lua
 
 assert "NativeSocialProfile_Save" in native_lua
 assert "NativeSocialAdmin_SaveName" in native_lua
+assert "NativeSocialPlayers_Whisper" in native_lua
+assert "ChatFrame_SendTell(value)" in native_lua
 assert "NativeSocial_RequestDirectory()" in native_lua
 assert "NativeSocial_LayoutNavigation" in native_lua
 assert 'currentView == "directory"' in native_lua
@@ -47,7 +51,7 @@ assert "Unsaved profile edits are preserved until you return." in native_lua
 layout = native_lua[native_lua.index("local function NativeSocial_LayoutNavigation"):
                     native_lua.index("local function NativeSocial_ProfileDraftIsDirty")]
 assert "for index = #visible, 1, -1 do" in layout
-assert 'button:SetPoint("TOPRIGHT", NativeSocialPlayersPanel, "TOPRIGHT", -14, -38)' in layout
+assert 'button:SetPoint("TOPRIGHT", NativeSocialPlayersPanel, "TOPRIGHT", -45, -38)' in layout
 assert 'button:SetPoint("RIGHT", buttonToRight, "LEFT", -4, 0)' in layout
 assert "TOPLEFT" not in layout
 
@@ -72,5 +76,16 @@ assert 'NativeSocialPlayersPanelAdminName:SetText("")' not in failure
 assert "admin.selectedId = nil" not in admin_response
 assert "ADMIN_CREATE_ACCOUNT" not in native_lua
 assert "password" not in native_lua.lower()
+
+whisper_handler = native_lua[native_lua.index("local function NativeSocial_HandleWhisper"):
+                             native_lua.index("local function NativeSocial_HandleAdmin")]
+assert 'command ~= "WHISPER_TARGET"' in whisper_handler
+assert "ChatFrame_SendTell(value)" in whisper_handler
+assert "SendChatMessage" not in whisper_handler
+
+whisper_action = native_lua[native_lua.index("function NativeSocialPlayers_Whisper"):
+                            native_lua.index("function NativeSocialProfile_Save")]
+assert 'NativeSocial_Send("whisper", "WHISPER_RESOLVE", tostring(accountId))' in whisper_action
+assert "row.characterName" not in whisper_action
 
 print("native Social FrameXML/UI static checks passed")

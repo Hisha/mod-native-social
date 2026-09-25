@@ -31,6 +31,8 @@ char constexpr DirectoryList[] = "DIR_LIST";
 char constexpr DirectoryStart[] = "DIR_START";
 char constexpr DirectoryEntry[] = "DIR_ENTRY";
 char constexpr DirectoryEnd[] = "DIR_END";
+char constexpr WhisperResolve[] = "WHISPER_RESOLVE";
+char constexpr WhisperTarget[] = "WHISPER_TARGET";
 char constexpr ProfileGet[] = "PROFILE_GET";
 char constexpr ProfileResult[] = "PROFILE_RESULT";
 char constexpr ProfileSave[] = "PROFILE_SAVE";
@@ -202,6 +204,16 @@ bool NsocHandler::ParseRequest(WorldSession* session, std::string const& message
         SendLegacyList(session, requestId);
     else if (cmd == command::DirectoryList && fields.size() == 4)
         SendDirectory(session, requestId);
+    else if (cmd == command::WhisperResolve && fields.size() == 5)
+    {
+        std::uint32_t accountId = 0;
+        std::string characterName;
+        bool const available = ParseAccountId(fields[4], accountId) &&
+            SocialService::Instance().ResolveWhisperTarget(session, accountId, characterName);
+        SendResponse(session, nsocc::Frame(command::WhisperTarget,
+            { requestId, available ? "1" : "0", nsocc::Escape(available
+                ? characterName : "That player is no longer available to whisper.") }));
+    }
     else if (cmd == command::ProfileGet && fields.size() == 4)
         SendProfile(session, requestId, false, NameResult::Ok, "");
     else if (cmd == command::ProfileSave && fields.size() == 6)
@@ -265,7 +277,8 @@ bool NsocHandler::ParseRequest(WorldSession* session, std::string const& message
     }
     else
         SendError(session, requestId,
-            (cmd == command::List || cmd == command::DirectoryList || cmd == command::ProfileGet ||
+            (cmd == command::List || cmd == command::DirectoryList || cmd == command::WhisperResolve ||
+             cmd == command::ProfileGet ||
              cmd == command::ProfileSave || cmd == command::AdminCaps ||
              cmd == command::AdminList || cmd == command::AdminSetName || cmd == command::AdminCreate)
                 ? nsoch::ErrorFields : nsoch::ErrorCommand,

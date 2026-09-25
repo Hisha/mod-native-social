@@ -106,6 +106,18 @@ void CodecTests()
     assert(adminFields.size() == 6);
     assert(adminFields[2] == "ADMIN_SET_NAME" && adminFields[4] == "206");
     assert(nsocc::Unescape(adminFields[5]) == "Isaac");
+
+    std::string const whisperResolve = nsocc::Frame("WHISPER_RESOLVE", { "A004", "42" });
+    auto const whisperFields = nsocc::Split(whisperResolve);
+    assert(whisperFields.size() == 5);
+    assert(whisperFields[2] == "WHISPER_RESOLVE" && whisperFields[4] == "42");
+
+    std::string const whisperTarget = nsocc::Frame("WHISPER_TARGET",
+        { "A004", "1", nsocc::Escape("Halflight") });
+    auto const targetFields = nsocc::Split(whisperTarget);
+    assert(targetFields.size() == 6);
+    assert(targetFields[2] == "WHISPER_TARGET" && targetFields[4] == "1");
+    assert(nsocc::Unescape(targetFields[5]) == "Halflight");
 }
 
 void AdminTests()

@@ -13,7 +13,10 @@ requirement:
 It installs three client files under `Interface/FrameXML/`: the patched stock
 FriendsFrame Lua/XML and the module-owned NativeSocial Lua transport/UI. The
 Players tab includes the public directory, self-service profile/privacy
-controls, and server-authorized administrator list/set-name controls. It has no
+controls, a stock-WoW Whisper action for currently advertised online characters,
+and server-authorized administrator list/set-name controls. The action performs
+authenticated click-time target resolution and then calls the stock whisper UI;
+ordinary chat text is never carried by NSOC. It has no
 graphical account-creation or credential field. This is a statement of required
 capability only. No Portalkeeper recipe, executable hash, offset, generation,
 or patch detail belongs in this repository.

@@ -335,6 +335,36 @@ std::vector<DirectoryEntry> SocialService::BuildPublicDirectory(WorldSession con
     return BuildDirectory(profiles, excludedAccounts, live);
 }
 
+bool SocialService::ResolveWhisperTarget(WorldSession const* viewer,
+    std::uint32_t targetAccountId, std::string& characterName)
+{
+    characterName.clear();
+    if (!viewer || !targetAccountId || viewer->GetAccountId() == targetAccountId)
+        return false;
+
+    FlushPresence();
+    if (!IsEligibleHumanAccount(targetAccountId))
+        return false;
+
+    SocialProfile profile;
+    if (!SocialProfileStore::Instance().FindAccount(targetAccountId, profile) ||
+        profile.displayName.empty() || profile.appearOffline ||
+        !IsAccountAdvertisedOnline(targetAccountId, profile))
+    {
+        return false;
+    }
+
+    Player* target = SocialPresence::Instance().ActiveCharacterForAccount(targetAccountId);
+    if (!target || !target->GetSession() ||
+        target->GetSession()->GetAccountId() != targetAccountId)
+    {
+        return false;
+    }
+
+    characterName = target->GetName();
+    return !characterName.empty();
+}
+
 bool SocialService::IsAuthorizedAdmin(WorldSession const* session) const
 {
     return session && session->GetSecurity() >= SEC_ADMINISTRATOR;
