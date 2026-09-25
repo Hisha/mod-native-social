@@ -44,6 +44,13 @@ assert 'currentView == "admin"' in native_lua
 assert "NativeSocial_ProfileDraftIsDirty" in native_lua
 assert "Unsaved profile edits are preserved until you return." in native_lua
 
+layout = native_lua[native_lua.index("local function NativeSocial_LayoutNavigation"):
+                    native_lua.index("local function NativeSocial_ProfileDraftIsDirty")]
+assert "for index = #visible, 1, -1 do" in layout
+assert 'button:SetPoint("TOPRIGHT", NativeSocialPlayersPanel, "TOPRIGHT", -14, -38)' in layout
+assert 'button:SetPoint("RIGHT", buttonToRight, "LEFT", -4, 0)' in layout
+assert "TOPLEFT" not in layout
+
 # Lua string.gsub returns both the new string and a replacement count. The
 # escaped name is the final ADMIN_SET_NAME argument, so returning gsub directly
 # adds a seventh server-side field and triggers ErrorFields.
@@ -53,6 +60,16 @@ assert "return string.gsub" not in escape_body
 assert "return value" in escape_body
 admin_save = native_lua[native_lua.index("function NativeSocialAdmin_SaveName") :]
 assert 'NativeSocial_Send("adminSave", "ADMIN_SET_NAME", tostring(admin.selectedId), NativeSocial_Escape(displayName))' in admin_save
+
+admin_response = native_lua[native_lua.index("local function NativeSocial_HandleAdmin"):
+                             native_lua.index("local function NativeSocial_HandleResponse")]
+success = admin_response[admin_response.index('if fields[4] == "SUCCESS" then'):
+                         admin_response.index("else", admin_response.index('if fields[4] == "SUCCESS" then'))]
+failure = admin_response[admin_response.index("else", admin_response.index('if fields[4] == "SUCCESS" then')):]
+assert 'NativeSocialPlayersPanelAdminName:SetText("")' in success
+assert "admin.afterSave = true" in success
+assert 'NativeSocialPlayersPanelAdminName:SetText("")' not in failure
+assert "admin.selectedId = nil" not in admin_response
 assert "ADMIN_CREATE_ACCOUNT" not in native_lua
 assert "password" not in native_lua.lower()
 

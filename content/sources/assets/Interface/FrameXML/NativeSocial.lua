@@ -129,11 +129,16 @@ local function NativeSocial_LayoutNavigation()
 		tinsert(visible, profileButton);
 	end
 
-	local x = 14;
-	for _, button in ipairs(visible) do
-		button:SetPoint("TOPLEFT", NativeSocialPlayersPanel, "TOPLEFT", x, -38);
+	local buttonToRight = nil;
+	for index = #visible, 1, -1 do
+		local button = visible[index];
+		if buttonToRight then
+			button:SetPoint("RIGHT", buttonToRight, "LEFT", -4, 0);
+		else
+			button:SetPoint("TOPRIGHT", NativeSocialPlayersPanel, "TOPRIGHT", -14, -38);
+		end
 		button:Show();
-		x = x + button:GetWidth() + 4;
+		buttonToRight = button;
 	end
 end
 
@@ -430,6 +435,9 @@ local function NativeSocial_HandleAdmin(command, fields)
 		admin.status = NativeSocial_Unescape(fields[6]);
 		pending = nil;
 		if fields[4] == "SUCCESS" then
+			-- Clear only after the server confirms persistence. The refreshed list
+			-- keeps admin.selectedId highlighted and supplies the updated row.
+			NativeSocialPlayersPanelAdminName:SetText("");
 			admin.afterSave = true;
 			NativeSocial_RequestAdminList(true);
 		else
