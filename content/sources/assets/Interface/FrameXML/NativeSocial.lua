@@ -135,7 +135,7 @@ local function NativeSocial_LayoutNavigation()
 		if buttonToRight then
 			button:SetPoint("RIGHT", buttonToRight, "LEFT", -4, 0);
 		else
-			button:SetPoint("TOPRIGHT", NativeSocialPlayersPanel, "TOPRIGHT", -14, -38);
+			button:SetPoint("TOPRIGHT", NativeSocialPlayersPanel, "TOPRIGHT", -45, -38);
 		end
 		button:Show();
 		buttonToRight = button;
