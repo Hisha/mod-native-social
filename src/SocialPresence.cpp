@@ -174,7 +174,7 @@ bool SocialPresence::IsHumanSession(Player const* player) const
     // session is flagged at construction, so this discriminates account-owned
     // and random bots the moment their session exists, independent of when the
     // PlayerbotAI is attached during login.
-    if (player->GetSession()->IsBot())
+    if (player->GetSession()->IsHeadless())
         return false;
 
     // Defensive secondary check against the AI registry (maps character GUID
